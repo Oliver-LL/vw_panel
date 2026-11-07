@@ -159,9 +159,9 @@ class InstallerDefaultsTests(unittest.TestCase):
             for path in (app,state,unit,cli_dir,bin_dir):path.mkdir()
             vault=root/'vault-data';vault.write_text('keep vault data')
             source=(ROOT/'panel-cli.sh').read_text()
-            for old,new in [('/opt/vw-panel',str(app)),('/var/lib/vw-panel',str(state)),('/etc/systemd/system',str(unit)),('/usr/local/bin/vw-panel',str(cli_dir/'vw-panel'))]:source=source.replace(old,new)
+            for old,new in [('/opt/vw-panel',str(app)),('/var/lib/vw-panel',str(state)),('/etc/systemd/system',str(unit)),('/usr/local/bin/vwp',str(cli_dir/'vwp'))]:source=source.replace(old,new)
             source=source.replace('[[ "$EUID" -eq 0 ]]','true')
-            file=cli_dir/'vw-panel';file.write_text(source)
+            file=cli_dir/'vwp';file.write_text(source)
             (unit/'vw-panel.service').write_text('fixture')
             fake=bin_dir/'systemctl';fake.write_text('#!/bin/sh\nexit 0\n');fake.chmod(0o755)
             # macOS does not ship flock. A test stub is sufficient for this path/removal test.

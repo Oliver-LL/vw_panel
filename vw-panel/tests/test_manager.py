@@ -205,6 +205,19 @@ class HTTPRoutesTests(unittest.TestCase):
             self.assertEqual(request('GET','/api/backups/download?file=../private.zip')[0],404)
             self.assertEqual(request('HEAD', '/')[0], 200)
             self.assertEqual(request('POST', '/api/task/start', {'action': ['bad']})[0], 409)
+            with patch.object(app.updates,'check',return_value={'installed':{'version':'0.5.0'},'available':False}):
+                self.assertEqual(request('GET','/api/updates',authenticated=False)[0],401)
+                self.assertEqual(request('GET','/api/updates')[0],200)
+            with patch.object(app.updates,'start',return_value={'state':'upgrading'}) as start:
+                self.assertEqual(request('POST','/api/updates/start',{'build_id':'b'*64,'confirmed':True},csrf=False)[0],403)
+                start.assert_not_called()
+                with patch.object(app.terminal,'state',return_value={'running':True}):
+                    self.assertEqual(request('POST','/api/updates/start',{'build_id':'b'*64,'confirmed':True})[0],409)
+                self.assertEqual(request('POST','/api/updates/start',{'build_id':'b'*64,'confirmed':True})[0],200)
+            with patch.object(app.updates,'busy',return_value=True):
+                self.assertEqual(request('POST','/api/config/core',self.data)[0],409)
+                self.assertEqual(request('POST','/api/task/start',{'action':'deploy'})[0],409)
+
         finally:
             conn.close()
             server.shutdown()

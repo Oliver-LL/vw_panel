@@ -568,5 +568,7 @@ class Manager(OperationsMixin):
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) == 3:
+    if len(sys.argv)==3 and sys.argv[1]=='--export-env':
+        for key,value in read_vars(Path(sys.argv[2])).items():print(key+'='+value)
+    elif len(sys.argv) == 3:
         print(read_vars(Path(sys.argv[1])).get(sys.argv[2], ''))

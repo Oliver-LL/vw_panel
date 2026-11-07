@@ -10,7 +10,7 @@ function route(){const page=location.hash.slice(1) in names?location.hash.slice(
 addEventListener('hashchange',()=>{route();notice('')});route();
 async function api(path,data){const options={credentials:'same-origin',headers:{}};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':csrf};options.body=JSON.stringify(data)}const response=await fetch('/api/'+path,options);let value;try{value=await response.json()}catch{throw Error('服务器没有返回有效结果，请检查连接。')}if(!response.ok){if(lastSubmittedForm&&(path.startsWith('config/')||path==='task/start'))revealGroup(lastSubmittedForm.querySelector(':invalid')||lastSubmittedForm);if(response.status===401&&path!=='login')showLogin();throw Error(value.error||'操作失败')}return value}
 function showLogin(){csrf='';clearInterval(timer);timer=null;$('workspace').hidden=true;$('login').hidden=false;document.querySelectorAll('input[type=password]').forEach(v=>v.value='');raw='';cursor=0;generation='';$('output').textContent='';$('task-output').textContent='';dirty.clear()}
-async function enter(session){csrf=session.csrf;$('password').value='';$('login-error').textContent='';$('workspace').hidden=false;$('login').hidden=true;$('server-address').textContent=location.host;route();await Promise.all([loadConfig(),refreshStatus(),loadSettings(),poll()]);if(csrf&&!timer)timer=setInterval(poll,1500)}
+async function enter(session){csrf=session.csrf;$('password').value='';$('login-error').textContent='';$('workspace').hidden=false;$('login').hidden=true;$('server-address').textContent=location.host;route();await Promise.all([loadConfig(),refreshStatus(),loadSettings(),poll()]);if(csrf&&!timer)timer=setInterval(poll,1500);checkPanelUpdates(false)}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button');button.disabled=true;try{await enter(await api('login',{password:$('password').value}))}catch(e){$('login-error').textContent=e.message}finally{button.disabled=false}};
 $('logout').onclick=async()=>{try{await api('logout',{});showLogin()}catch(e){notice(e.message,true)}};
 for(const id of ['core-form','mail-form','backup-form','remote-form','advanced-form','push-form','notifications-form','targets-form']){$(id).addEventListener('input',()=>dirty.add(id));$(id).addEventListener('change',()=>dirty.add(id))}
@@ -23,11 +23,11 @@ $('core-form').elements.mode.onchange=routeHelp;$('core-form').elements.port.oni
 function formValues(id){const values={};for(const field of $(id).elements){if(!field.name)continue;values[field.name]=field.type==='checkbox'?field.checked:field.value}return values}
 for(const [id,section]of [['core-form','core'],['mail-form','mail'],['backup-form','backup']]){$(id).onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;const button=form.querySelector('button[type=submit]')||form.querySelector('button');button.disabled=true;try{const data=formValues(id);const result=await api('config/'+section,data);dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(v=>v.value='');notice(result.message);await loadConfig()}catch(e){notice(e.message,true)}finally{button.disabled=false}}}
 async function refreshStatus(){try{const status=await api('status');environment=status;lastStatus=Date.now();for(const [name,id]of [['vaultwarden','vault'],['vaultwarden-backup','backup']]){const row=status.containers.find(r=>r.Names===name),active=row&&row.State==='running';$(id+'-state').textContent=!status.available?(status.docker_installed===false?'环境未就绪':'状态未知'):!row?'尚未部署':active?'运行中':'已停止';$(id+'-state').classList.toggle('good',!!active);$(id+'-detail').textContent=row?row.Status:status.message||'完成配置后即可启动';if(id==='vault'){$('step-deploy').classList.toggle('done',!!active);$('step-deploy').querySelector('b').textContent=active?'已运行':'待部署';$('setup-heading').textContent=active?'你的密码库，正在安心运行。':'三步，拥有自己的密码库。'}}$('docker-help').hidden=status.available;renderPresentation()}catch(e){environment={unknown:true,available:false,docker_installed:null,containers:[]};for(const id of ['vault','backup']){$(id+'-state').textContent='状态未知';$(id+'-state').classList.remove('good');$(id+'-detail').textContent='暂时无法读取服务状态'}renderPresentation();notice(e.message,true)}}
-async function startTask(action,extra={}){if(taskRunning){location.hash='tasks';notice('已有任务正在执行，请等待完成。');return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!confirm(confirmations[action]))return false;try{await api('task/start',{action,confirmed:true,...extra});location.hash='tasks';notice('任务已开始，可以在此查看执行结果。');await poll();return true}catch(e){notice(e.message,true);return false}}
+async function startTask(action,extra={}){if(panelUpdating){notice('面板正在升级，请完成后再操作。',true);return false}if(taskRunning){location.hash='tasks';notice('已有任务正在执行，请等待完成。');return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!confirm(confirmations[action]))return false;try{await api('task/start',{action,confirmed:true,...extra});location.hash='tasks';notice('任务已开始，可以在此查看执行结果。');await poll();return true}catch(e){notice(e.message,true);return false}}
 document.querySelectorAll('[data-task]').forEach(button=>button.onclick=()=>startTask(button.dataset.task));
 $('remote-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(!confirm('将验证 WebDAV 连接并切换备份目标。原文件保留，配置完成后需应用备份服务。确认继续？'))return;if(await startTask('remote-save',formValues('remote-form'))){dirty.delete('remote-form');form.elements.password.value=''}};
 $('token-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(form.elements.password.value!==form.elements.confirmation.value)return notice('两次输入的管理口令不一致。',true);if(form.elements.password.value.length<12)return notice('管理口令至少需要 12 个字符。',true);if(await startTask('admin-token',{password:form.elements.password.value}))form.reset()};
-function paintTask(job){presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed')$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning);renderPresentation()}
+function paintTask(job){presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed')$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation()}
 async function poll(){if(refreshing||!csrf)return;refreshing=true;try{const job=await api('task');paintTask(job);if(job.result)renderResult(job);if(Date.now()-lastStatus>15000)await refreshStatus();if(job.id&&job.state!=='running'&&finishedTask!==job.id){finishedTask=job.id;await Promise.all([loadConfig(),refreshStatus()])}if($('advanced').open||consoleRunning)await pollConsole()}catch(e){notice(e.message,true)}finally{refreshing=false}}
 $('refresh').onclick=async()=>{await Promise.all([loadConfig(),refreshStatus(),poll()]);notice('状态已刷新，未保存的表单已保留。')};$('refresh-files').onclick=loadConfig;
 async function loadSettings(){try{const settings=await api('settings');settingsSnapshot=settings;$('domains').textContent=settings.origins.length?'已允许访问：'+settings.origins.join('、'):'尚未添加域名，当前可通过 IP 访问。';$('proxy-help').textContent='宿主机反向代理目标：http://127.0.0.1:'+settings.port+'。Nginx 需保留原始 Host（含端口）：proxy_set_header Host $http_host;';renderPresentation()}catch(e){notice(e.message,true)}}
@@ -219,9 +219,52 @@ function renderPresentation(){
         button.querySelector('small').textContent=corePending?'有已保存的修改等待加载':active?'服务运行中，可按需重新应用':core?'使用现有配置重新启动':cfg.configured?'使用已保存的配置部署':'先完成密码库配置';
     }
     updateGroupSummaries();
+    if(panelUpdating)document.querySelectorAll('[data-task]').forEach(button=>button.disabled=true);
     if(presentationJob?.state==='running')$('task-description').textContent=['deploy','upgrade','upgrade-backup','install-docker'].includes(presentationJob.action)?'正在准备并应用服务，镜像下载可能需要几分钟。':'任务正在服务器后台执行，完成后会自动刷新结果。';
 }
 setupPresentation();
 document.addEventListener('input',()=>renderPresentation());
 document.addEventListener('change',()=>renderPresentation());
+
+
+let panelUpdating=false,checkingUpdates=false,panelUpdateInfo=null,updateWatch=null;
+function paintPanelUpdate(info){
+    clearTimeout(updateWatch);panelUpdateInfo=info;const installed=info.installed||{};const latest=info.latest;
+    $('panel-version').textContent=installed.version||'未知版本';
+    $('check-updates').title='当前构建 '+(installed.build_id||'未记录').slice(0,8)+' · 点击检查更新';
+    panelUpdating=info.progress?.state==='upgrading';
+    $('check-updates').disabled=panelUpdating;
+    $('panel-update').hidden=false;$('panel-update').className='panel-update';
+    $('update-dot').hidden=!info.available;$('upgrade-panel').hidden=!info.available||panelUpdating;
+    $('upgrade-panel').disabled=taskRunning||consoleRunning||panelUpdating;
+    $('upgrade-panel').title=taskRunning||consoleRunning?'请先完成当前任务或结束高级控制台':'';
+    if(panelUpdating){$('update-message').textContent='正在升级管理面板，服务重启后需要重新登录。'}
+    else if(info.progress?.state==='failed'){$('panel-update').classList.add('error');$('update-message').textContent=info.progress.error||'升级失败，请重试。'}
+    else if(info.error){$('panel-update').classList.add('error');$('update-message').textContent=info.error}
+    else if(info.available&&latest){$('panel-update').classList.add('available');$('update-message').textContent='可升级到 '+latest.version+' · 构建 '+latest.build_id.slice(0,8)}
+    else{$('update-message').textContent='已是最新构建 · 点击版本号可重新检查'}
+    if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}
+    renderPresentation();
+}
+async function checkPanelUpdates(force=false){
+    if(!csrf||checkingUpdates)return;checkingUpdates=true;$('check-updates').disabled=true;
+    try{
+        const response=await fetch('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});
+        if(response.status===401){if(panelUpdating){location.reload();return}showLogin();return}
+        const info=await response.json();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');paintPanelUpdate(info);
+    }catch(error){$('panel-update').hidden=false;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
+    finally{checkingUpdates=false;$('check-updates').disabled=panelUpdating}
+}
+$('check-updates').onclick=()=>checkPanelUpdates(true);
+$('upgrade-panel').onclick=async()=>{
+    if(!panelUpdateInfo?.available||!panelUpdateInfo.latest)return;
+    if(taskRunning||consoleRunning)return notice('请先完成当前任务或结束高级控制台。',true);
+    const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password]')).some(input=>input.value);
+    const message=(hasInput?'页面还有未保存输入，重启后将丢失。\n':'')+'确认升级管理面板？升级会重启面板并要求重新登录；密码库与备份容器保持运行。';
+    if(!confirm(message))return;
+    $('upgrade-panel').disabled=true;
+    try{const progress=await api('updates/start',{build_id:panelUpdateInfo.latest.build_id,confirmed:true});paintPanelUpdate({...panelUpdateInfo,progress});}
+    catch(error){notice(error.message,true);$('upgrade-panel').disabled=false}
+};
+setInterval(()=>{if(csrf&&!panelUpdating)checkPanelUpdates(false)},60000);
 api('session').then(enter).catch(showLogin);

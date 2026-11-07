@@ -20,6 +20,14 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 
 支持原脚本 18 个主功能的独立网页操作，包括云盘向导、多目标备份、Push、通知、诊断、恢复与按范围卸载。宽屏页面随窗口展开。安装时端口/密码回车随机生成，成功后显示；升级保留已有配置。
 
-终端执行 `sudo vw-panel` 打开管理菜单，`sudo vw-panel original` 进入原始脚本，`sudo vw-panel uninstall` 仅卸载面板并保留密码库和备份。安装文件无参数时显示安装/升级、原始脚本、管理和卸载菜单。
+终端执行 `sudo vwp` 打开管理菜单，`sudo vwp original` 进入原始脚本，`sudo vwp uninstall` 仅卸载面板并保留密码库和备份。安装文件无参数时显示安装/升级、原始脚本、管理和卸载菜单。
 
 [完整说明与功能对照](vw-panel/README.md)
+
+## 0.5.0 更新
+
+左下角版本号自动检查面板构建，可点击升级。升级器独立运行并校验下载包，保留端口、密码及密码库配置；重启后重新登录。首次需先用安装命令升级到本版。
+
+终端菜单使用 `vwp`，不安装 `vmp` 别名。`vwp bash` 为共享网页配置的兼容菜单；`vwp original` 是未修改的原始快照，进入前会说明配置格式差异。
+
+发布前运行 `python3 vw-panel/build.py`，将生成的 `install-vw-web.sh`、`version.json`、`release.json` 与代码一并提交。

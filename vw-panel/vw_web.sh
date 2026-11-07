@@ -4688,7 +4688,7 @@ test_backup_mail_notification() {
 
     echo -e "${YELLOW}正在向 [$test_mail_to] 发送测试邮件，请稍候...${NC}"
     test_output=$(docker run --rm \
-        --env-file "$_BACKUP_ENV_FILE" \
+        --env-file <(python3 "$(dirname -- "${BASH_SOURCE[0]}")/web/manager.py" --export-env "$_BACKUP_ENV_FILE") \
         --entrypoint sh \
         ttionya/vaultwarden-backup:latest \
         -ec '

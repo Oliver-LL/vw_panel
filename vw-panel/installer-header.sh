@@ -23,17 +23,22 @@ if [[ "${1:-}" == --help ]]; then
     echo '选项：--install 安装/升级；--original 原始脚本；--menu 管理菜单；--uninstall 卸载面板'
     exit 0
 fi
-[[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --install || "$1" == --original || "$1" == --menu || "$1" == --uninstall ) ) ]] || { echo '未知参数，请使用 --help。'; exit 1; }
+[[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --upgrade || "$1" == --install || "$1" == --original || "$1" == --menu || "$1" == --uninstall ) ) ]] || { echo '未知参数，请使用 --help。'; exit 1; }
 [[ "$(uname -s)" == Linux ]] || { echo '请把安装文件上传到 Linux 服务器执行。'; exit 1; }
 [[ "$EUID" -eq 0 ]] || { echo '请执行 sudo bash install-vw-web.sh'; exit 1; }
 (( BASH_VERSINFO[0] >= 4 )) || { echo '需要 Bash 4 或更高版本。'; exit 1; }
 command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || { echo '需要使用 systemd 的 Linux 服务器（例如 Debian 12）。'; exit 1; }
-[[ -r /dev/tty && -w /dev/tty ]] || { echo '请在交互式 SSH 会话中执行。'; exit 1; }
-exec 3<>/dev/tty
+if [[ "${1:-}" == --upgrade ]]; then
+    [[ -f /var/lib/vw-panel/panel.json && -f /var/lib/vw-panel/credentials.json ]] || { echo '后台升级只适用于已经安装的面板。'; exit 1; }
+    exec 3</dev/null
+else
+    [[ -r /dev/tty && -w /dev/tty ]] || { echo '请在交互式 SSH 会话中执行。'; exit 1; }
+    exec 3<>/dev/tty
+fi
 choice=1
 case "${1:-}" in
     --original) choice=2;; --menu) choice=3;; --uninstall) choice=4;;
-    --install) choice=1;;
+    --install|--upgrade) choice=1;;
     '')
         echo '========== Vaultwarden 安装与管理 =========='
         echo ' 1) 安装 / 升级网页面板'
@@ -53,9 +58,9 @@ case "$choice" in
         echo '原始脚本不受网页任务锁保护，请勿与网页同时部署或恢复。'
         bash "$original_tmp/vw_original.sh"; exit $?;;
     3|4)
-        [[ -x /usr/local/bin/vw-panel ]] || { echo '尚未安装网页面板。'; exit 1; }
-        if [[ "$choice" == 4 ]]; then exec /usr/local/bin/vw-panel uninstall; fi
-        exec /usr/local/bin/vw-panel menu;;
+        [[ -x /usr/local/bin/vwp ]] || { echo '尚未安装网页面板。'; exit 1; }
+        if [[ "$choice" == 4 ]]; then exec /usr/local/bin/vwp uninstall; fi
+        exec /usr/local/bin/vwp menu;;
     1) ;; *) echo '无效的菜单选项。'; exit 1;;
 esac
 if ! command -v python3 >/dev/null; then
@@ -133,8 +138,6 @@ TimeoutStopSec=30
 [Install]
 WantedBy=multi-user.target
 EOF
-install -m 755 "$release/panel-cli.sh" /usr/local/bin/vw-panel
-chmod 755 /usr/local/bin/vw-panel
 systemctl daemon-reload
 systemctl enable vw-panel >/dev/null
 systemctl restart vw-panel
@@ -158,6 +161,11 @@ if [[ "$healthy" != true ]]; then
     fi
     exit 1
 fi
+install -m 755 "$release/panel-cli.sh" /usr/local/bin/vwp
+# Remove only the earlier command installed by this project; never touch `vw`.
+if [[ -f /usr/local/bin/vw-panel ]] && grep -Eq 'panel_root=/opt/vw-panel|/opt/vw-panel/current/web/server.py' /usr/local/bin/vw-panel; then
+    rm -f /usr/local/bin/vw-panel
+fi
 local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo '================ 安装完成 ================'
@@ -167,14 +175,14 @@ if [[ -s "$bootstrap_secret" ]]; then
     printf '管理员密码：'; cat "$bootstrap_secret"; echo
     echo '请保存此密码，安装完成后不会在服务器保存密码原文。'
 else
-    echo '升级保留原面板密码；忘记后执行 sudo vw-panel password。'
+    echo '升级保留原面板密码；忘记后执行 sudo vwp password。'
 fi
 rm -f "$bootstrap_secret"
 echo "面板端口：$panel_port"
-echo '终端管理菜单：sudo vw-panel'
-echo '原始 Bash 脚本：sudo vw-panel original'
-echo '卸载网页面板：sudo vw-panel uninstall（保留密码库与备份）'
+echo '终端管理菜单：sudo vwp'
+echo '原始 Bash 脚本：sudo vwp original'
+echo '卸载网页面板：sudo vwp uninstall（保留密码库与备份）'
 echo "若无法访问，请在云安全组及服务器防火墙放行 TCP $panel_port。"
-echo '后续绑定域名：网页 → 面板设置，或 sudo vw-panel domain https://你的面板域名'
+echo '后续绑定域名：网页 → 面板设置，或 sudo vwp domain https://你的面板域名'
 echo '面板已设置开机启动；原有密码库和原脚本没有被改动。'
 exit 0

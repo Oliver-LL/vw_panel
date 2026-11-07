@@ -30,6 +30,7 @@ from urllib.parse import urlsplit, parse_qs, quote
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from manager import Manager
+from updater import Updates
 
 SCRIPT = ROOT.parent / 'vw_web.sh'
 ACTIONS = {str(i) for i in range(1, 19)}
@@ -176,6 +177,7 @@ class Application:
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.manager = Manager(self.state_dir)
+        self.updates = Updates(self.state_dir)
 
     def allowed_origin(self, value):
         try:
@@ -262,7 +264,7 @@ def status():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'VWPanel/0.4'
+    server_version = 'VWPanel/0.5'
 
     @property
     def app(self):
@@ -332,6 +334,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except (ValueError,OSError):
                 return self.reply(404,{'error':'备份文件不可读取。'})
+        if path == '/api/updates':
+            try:
+                force=parse_qs(urlsplit(self.path).query).get('force',['0'])[0]=='1'
+                return self.reply(200,self.app.updates.check(force=force))
+            except (OSError,ValueError):
+                return self.reply(503,{'error':'暂时无法读取面板更新状态。'})
         if path == '/api/config':
             try:
                 return self.reply(200, self.app.manager.config())
@@ -364,6 +372,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or Path(name).name!=name or any(ord(c)<32 for c in name) or not name.lower().endswith(('.zip','.7z')):
                     raise ValueError('请选择 zip 或 7z 备份。')
                 with self.app.operation_lock, self.app.manager.exclusive():
+                    if self.app.updates.busy():raise ValueError('面板正在升级，请完成后再上传。')
                     if self.app.terminal.state()['running']:raise ValueError('请先结束高级控制台。')
                     _,backup=self.app.manager.paths()
                     folder=backup/'backups'/'uploaded';folder.mkdir(parents=True,exist_ok=True)
@@ -414,6 +423,15 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), auth[1]):
             return self.reply(403, {'error': '请求校验失败，请刷新页面。'})
         try:
+            if path == '/api/updates/start':
+                if data.get('confirmed') is not True:raise ValueError('请确认升级面板。')
+                with self.app.operation_lock:
+                    if self.app.updates.busy():raise ValueError('面板正在升级，请等待完成。')
+                    if self.app.terminal.state()['running'] or self.app.manager.task()['state']=='running':
+                        raise ValueError('请先完成当前任务或结束高级控制台，再升级面板。')
+                    return self.reply(200,self.app.updates.start(data.get('build_id')))
+            if path!='/api/logout' and self.app.updates.busy():
+                raise ValueError('面板正在升级，暂时不能修改配置或执行任务。')
             if path == '/api/logout':
                 with self.app.lock:
                     self.app.sessions.pop(auth[0], None)
@@ -424,6 +442,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {'origin': self.app.domain(data['origin'])})
             if path.startswith('/api/config/') or path == '/api/task/start':
                 with self.app.operation_lock:
+                    if self.app.updates.busy():raise ValueError('面板正在升级，请等待完成。')
                     if self.app.terminal.state()['running']:
                         raise ValueError('请先结束高级控制台，再使用表单或任务按钮。')
                     if path == '/api/task/start':
@@ -431,6 +450,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, self.app.manager.save(path.rsplit('/', 1)[-1], data))
             # Serialize start/stop/input, so a slow stop cannot terminate a new session.
             with self.app.operation_lock:
+                if self.app.updates.busy():raise ValueError('面板正在升级，请等待完成。')
                 if path == '/api/terminal/start':
                     action = data.get('action')
                     if action is not None and (not isinstance(action, str) or action not in ACTIONS):

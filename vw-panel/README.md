@@ -1,4 +1,4 @@
-# Vaultwarden 网页管理面板 0.4
+# Vaultwarden 网页管理面板 0.5.0
 
 面向日常管理的表单面板：填写配置、点击部署、查看任务结果。常用功能不再要求输入脚本菜单编号。配置页面按组点击展开，默认只展开主要配置；收起时显示简短状态，未保存的表单值会保留，校验错误会自动展开对应分组。
 
@@ -65,24 +65,24 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 面板域名与 SSH 管理
 
 ```bash
-sudo vw-panel               # 交互管理菜单
-sudo vw-panel original      # 原始 Bash 脚本
-sudo vw-panel bash          # 与网页共用锁的兼容分支
-sudo vw-panel uninstall     # 只卸载面板，保留密码库和备份
-sudo vw-panel info
-sudo vw-panel status
-sudo vw-panel logs
-sudo vw-panel restart
-sudo vw-panel password
-sudo vw-panel port 8788
-sudo vw-panel domain https://panel.example.com
+sudo vwp               # 交互管理菜单
+sudo vwp original      # 原始 Bash 脚本
+sudo vwp bash          # 与网页共用锁的兼容分支
+sudo vwp uninstall     # 只卸载面板，保留密码库和备份
+sudo vwp info
+sudo vwp status
+sudo vwp logs
+sudo vwp restart
+sudo vwp password
+sudo vwp port 8788
+sudo vwp domain https://panel.example.com
 ```
 
 域名需先配置 DNS，再将 Nginx / NPM / Caddy 的 HTTPS 反代指向面板。宿主机反代目标为 `http://127.0.0.1:面板端口`，容器中的 NPM 使用其可访问的宿主机 IP。保留浏览器原始 Host，包括非标准端口：`proxy_set_header Host $http_host;`。
 
 ## 终端卸载与安装菜单
 
-`sudo vw-panel uninstall` 要求输入 `UNINSTALL`，停止并禁用面板服务，移除面板程序与终端命令；另行询问是否清除面板密码与域名设置，默认保留。它不移除密码库、Caddy、备份或 Docker。有网页任务运行时拒绝卸载。
+`sudo vwp uninstall` 要求输入 `UNINSTALL`，停止并禁用面板服务，移除面板程序与终端命令；另行询问是否清除面板密码与域名设置，默认保留。它不移除密码库、Caddy、备份或 Docker。有网页任务运行时拒绝卸载。
 
 同一安装文件支持 `--install`、`--original`、`--menu`、`--uninstall`；无参数时显示菜单。`--extract 目录` 仍只解包。
 
@@ -145,3 +145,24 @@ bash install-vw-web.sh --extract /tmp/vw-panel-inspect
 状态记录在 `/var/lib/vw-panel/application.json`，仅记录配置指纹，不保存密码原文。应用成功后才更新；失败不会清除待应用提示。刷新页面和面板重启后仍可识别。旧部署没有记录时标为未知，不直接声称配置已应用；有运行中的容器时也不重复显示首次部署引导。
 
 本机归档为空与远程备份缺失分开描述；备份已运行时不再提示“先启用”。Docker 未安装与服务不可连接分开处理，后者不显示重复安装按钮。已有面板域名不再显示新增域名的首次引导。
+
+## 面板更新与终端菜单
+
+登录后左下角版本号自动检查 GitHub `main` 分支发布的安装包；页面打开时定时读取检查结果，正常情况下每六小时重新向 GitHub 检查，也可点击版本号立即检查。网络失败会显示检查失败，不会冒充“已是最新”。
+
+发现更新后点击“升级面板”。程序校验下载包的 SHA-256，由独立 systemd 任务执行后台升级，因此面板重启不会终止更新器。保留端口、密码和部署配置，不重启 Vaultwarden 或备份容器。现有操作未结束时拒绝升级；升级后需要重新登录。失败详情可查 `/var/lib/vw-panel/update.log`。此校验用于发现下载损坏或版本不一致，不是独立签名认证。真实 systemd 自升级仍需服务器验收。
+
+终端只安装 `vwp`：
+
+```bash
+vwp                # 管理菜单（非 root 用户加 sudo）
+vwp check-update   # 立即检查更新
+vwp update         # 确认后后台升级面板
+vwp bash           # 共享网页配置的 Bash 兼容菜单
+vwp original       # 未修改的原始快照，进入前提示兼容差异
+vwp uninstall      # 卸载面板，保留密码库与备份
+```
+
+网页与兼容 Bash 使用相同的 `/root/.vw_deploy.conf`、部署目录、环境文件与容器，能够读取已有配置。原始快照保持逐字不变，虽然能找到部署目录与容器，但不解析网页写入的部分 dotenv 引号，某些开关、域名或密码读取可能不准确，因此推荐兼容菜单。两者名称明确区分。
+
+发布前运行 `python3 build.py`，把生成的 `install-vw-web.sh`、`release.json`、`version.json` 与代码一起提交。检测更新依据构建指纹，即使版本号未变，也能识别新的构建。旧版本首次需要手动升级到此版本，之后即可使用页面更新入口。

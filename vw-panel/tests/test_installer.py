@@ -40,7 +40,7 @@ class InstallerTests(unittest.TestCase):
             source = (ROOT/'install-vw-web.sh').read_text()
             source = source.replace('[[ "$EUID" -eq 0 ]]', 'true')
             for old, new in [('/opt/vw-panel', str(root/'app')),('/var/lib/vw-panel',str(root/'state')),
-                             ('/etc/systemd/system',str(root/'unit')),('/usr/local/bin/vw-panel',str(root/'cli/vw-panel')),
+                             ('/etc/systemd/system',str(root/'unit')),('/usr/local/bin/vwp',str(root/'cli/vwp')),('/usr/local/bin/vw-panel',str(root/'cli/legacy-vw-panel')),
                              ('/run/systemd/system',str(root/'systemd-present'))]:
                 source = source.replace(old,new)
             installer = root/'installer.sh'
@@ -109,7 +109,14 @@ if sys.argv[1] in ('restart','start'):
                     self.assertEqual(len(list((root/'app/releases').glob('20*'))),2)
                     unit=(root/'unit/vw-panel.service').read_text()
                     self.assertIn('KillMode=control-group',unit)
-                    self.assertTrue((root/'cli/vw-panel').exists())
+                    self.assertTrue((root/'cli/vwp').exists())
+                    # Background upgrades do not need a controlling terminal.
+                    result=panel.subprocess.run(['bash',str(installer),'--upgrade'],stdin=panel.subprocess.DEVNULL,
+                        capture_output=True,text=True,timeout=25)
+                    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                    self.assertEqual(old_credentials,(root/'state/credentials.json').read_bytes())
+                    self.assertEqual(json.loads((root/'state/panel.json').read_text())['port'],port)
+
             finally:
                 terminal.stop()
                 pid_file=root/'service.pid'
