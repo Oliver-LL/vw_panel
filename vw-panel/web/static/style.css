@@ -29,3 +29,7 @@ main{max-width:none;margin:0;padding:30px 32px 24px}.page-title{margin-bottom:23
 .group-body{padding:23px 25px 25px}.group-body>.section-title{margin-bottom:14px}.group-body>.hint:first-child{margin-top:0}.group-body>form>.toggle:first-child{padding-top:0}
 .group-summary .badge{font-size:10px;margin-left:10px}.group-label{min-width:0;flex:1}
 @media(max-width:760px){.group-summary{padding:17px 17px;gap:10px;flex-wrap:wrap}.group-summary>.card-heading{gap:10px;flex-basis:65%}.group-summary .card-heading p{font-size:10px}.group-summary .number{width:27px;height:27px;font-size:10px}.group-summary h2{font-size:13px}.group-meta{max-width:100%;margin-left:auto;gap:9px}.group-status{max-width:185px;font-size:10px}.group-body{padding:19px 17px}.group-summary .badge{margin-left:0}.group-toggle{font-size:10px}.config-group{margin-bottom:11px}}
+
+#pending-overview .button-row{margin:0;flex-shrink:0}#pending-overview-detail{max-width:680px}
+
+#pending-overview .button-row{max-width:100%;flex-shrink:1}

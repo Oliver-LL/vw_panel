@@ -3,6 +3,7 @@ import base64
 import configparser
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -100,6 +101,63 @@ class Manager(OperationsMixin):
                 raise ValueError('已有任务或高级控制台正在运行，请结束后再操作。')
             yield
 
+    def revision(self, scope):
+        app, backup = self.paths()
+        folder = app if scope == 'core' else backup
+        if not (folder / 'docker-compose.yml').exists():
+            return None
+        paths = [folder / 'docker-compose.yml', folder / ('vaultwarden.env' if scope == 'core' else 'backup.env')]
+        if scope == 'core':
+            memory = read_vars(self.memory)
+            if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_DIR'):
+                paths.append(Path(memory['CADDY_DIR']) / 'Caddyfile')
+        else:
+            paths.append(folder / 'vw-backup-config/rclone/rclone.conf')
+        digest = hashlib.sha256()
+        for file in paths:
+            digest.update(str(file).encode());digest.update(b'\0')
+            if file.name in ('vaultwarden.env','backup.env'):
+                digest.update(json.dumps(read_vars(file),sort_keys=True,ensure_ascii=False).encode())
+            else:
+                digest.update(file.read_bytes() if file.exists() else b'absent')
+            digest.update(b'\0')
+        return digest.hexdigest()
+
+    def application_record(self):
+        path = self.state / 'application.json'
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def application_state(self):
+        record = self.application_record()
+        result = {}
+        for scope in ('core', 'backup'):
+            revision = self.revision(scope)
+            item = record.get(scope, {})
+            if revision is None: result[scope] = 'unconfigured'
+            elif item.get('applied') == revision: result[scope] = 'applied'
+            elif item.get('applied') or item.get('pending'): result[scope] = 'pending'
+            else: result[scope] = 'unknown'
+        return result
+
+    def note_changes(self, before):
+        record = self.application_record()
+        changed = False
+        for scope, previous in before.items():
+            revision = self.revision(scope)
+            if revision != previous and revision:
+                item = record.setdefault(scope, {})
+                item['pending'] = revision
+                changed = True
+        if changed:
+            write_private(self.state / 'application.json', json.dumps(record))
+
+    def note_applied(self, scope):
+        revision = self.revision(scope)
+        if revision:
+            record = self.application_record()
+            record[scope] = {'applied': revision}
+            write_private(self.state / 'application.json', json.dumps(record))
+
     def root(self):
         saved = read_vars(self.memory)
         value = saved.get('VW_DIR', '/opt/vaultwarden')
@@ -117,7 +175,7 @@ class Manager(OperationsMixin):
         memory = read_vars(self.memory)
         safe_keys = ('DOMAIN', 'SERVER_ADMIN_EMAIL', 'SIGNUPS_ALLOWED', 'INVITATIONS_ALLOWED',
                      'SENDS_ALLOWED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_FROM', 'SMTP_USERNAME')
-        return {'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
+        return {'application': self.application_state(), 'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
                 'backup_configured': (backup / 'docker-compose.yml').exists(),
                 'mode': memory.get('PROXY_MODE', 'caddy'), 'port': memory.get('EXT_PORT', '8080'),
                 'network': memory.get('DOCKER_NET', 'vaultwarden_net'),
@@ -154,66 +212,85 @@ class Manager(OperationsMixin):
 
     def save(self, section, data):
         with self.exclusive():
-            app, backup = self.paths()
-            if section == 'core':
-                return self.save_core(data, app)
-            if section == 'mail':
-                if not (app / 'vaultwarden.env').exists():
-                    raise ValueError('请先保存密码库配置。')
-                keys = ('SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_FROM', 'SMTP_USERNAME')
-                updates = {key: text(data.get(key, ''), key) for key in keys}
-                if updates['SMTP_PORT']:
-                    number(updates['SMTP_PORT'], '邮件端口', 1, 65535)
-                if updates['SMTP_SECURITY'] not in ('starttls', 'force_tls', 'off'):
-                    raise ValueError('请选择邮件加密方式。')
-                if data.get('SMTP_PASSWORD'):
-                    updates['SMTP_PASSWORD'] = secret_text(data['SMTP_PASSWORD'], '邮件密码')
-                update_vars(app / 'vaultwarden.env', updates)
-            elif section in ('advanced','push','notifications','targets'):
-                self.save_extended(section,data)
-            elif section == 'backup':
-                if not (app / 'docker-compose.yml').exists():
-                    raise ValueError('请先配置密码库。')
-                cron = data.get('CRON', '')
-                if not isinstance(cron,str) or len(cron.split())!=5 or not re.fullmatch(r'[0-9* /,\-]+',cron):
-                    raise ValueError('请输入标准五段 CRON 表达式。')
-                bounds=((0,59),(0,23),(1,31),(1,12),(0,7))
-                for part,(low,high) in zip(cron.split(),bounds):
-                    for item in part.split(','):
-                        base,sep,step=item.partition('/')
-                        if sep and (not step.isdigit() or not 1<=int(step)<=high+1):raise ValueError('CRON 步长无效。')
-                        if base!='*':
-                            values=base.split('-')
-                            if len(values)>2 or any(not v.isdigit() or not low<=int(v)<=high for v in values):raise ValueError('CRON 数值超出范围。')
-                            if len(values)==2 and int(values[0])>int(values[1]):raise ValueError('CRON 范围无效。')
-                timezone = text(data.get('TIMEZONE', 'Asia/Shanghai'), '时区')
-                if not re.fullmatch(r'[A-Za-z_]+(?:/[A-Za-z0-9_+\-]+)+|UTC', timezone):
-                    raise ValueError('时区格式不正确。')
-                updates = {'CRON': cron, 'TIMEZONE': timezone,
-                           'BACKUP_KEEP_DAYS': number(data.get('BACKUP_KEEP_DAYS'), '保留天数', 0, 3650)}
-                old = read_vars(backup / 'backup.env')
-                if data.get('ZIP_PASSWORD'):
-                    password = secret_text(data['ZIP_PASSWORD'], '备份密码')
-                    if len(password) < 12:
-                        raise ValueError('备份密码至少 12 个字符。')
-                    updates['ZIP_PASSWORD'] = password
-                elif not old.get('ZIP_PASSWORD'):
-                    raise ValueError('首次配置请设置备份加密密码。')
-                if not (backup / 'docker-compose.yml').exists():
-                    updates.update(RCLONE_REMOTE_NAME='BitwardenBackup', RCLONE_REMOTE_DIR='/bitwarden/backup/archive',
-                                   BACKUP_FILE_SUFFIX='%Y%m%d-%H%M%S')
-                    for name in ('backups', 'vw-backup-config/rclone'):
-                        (backup / name).mkdir(parents=True, exist_ok=True)
-                    write_private(backup / 'vw-backup-config/rclone/rclone.conf', '[BitwardenBackup]\ntype = local\n')
-                    compose = {'services': {'backup': {'image': 'ttionya/vaultwarden-backup:latest',
-                        'container_name': 'vaultwarden-backup', 'restart': 'unless-stopped',
-                        'env_file': ['./backup.env'], 'volumes': ['../vaultwarden/data:/bitwarden/data:ro',
-                        './backups:/bitwarden/backup', './vw-backup-config:/config']}}}
-                    write_private(backup / 'docker-compose.yml', json.dumps(compose, indent=2))
-                update_vars(backup / 'backup.env', updates)
+            before = {scope: self.revision(scope) for scope in ('core', 'backup')}
+            try:
+                result = self._save(section, data)
+            finally:
+                self.note_changes(before)
+            scope = 'core' if section in ('core','mail','advanced','push') else 'backup'
+            state = self.application_state()[scope]
+            if scope=='core' and not read_vars(self.paths()[0]/'vaultwarden.env').get('ADMIN_TOKEN'):
+                result['message']='配置已保存。设置管理口令后即可部署密码库。'
+            elif state=='pending':
+                result['message']=('密码库' if scope=='core' else '备份')+'设置已保存，等待应用到服务。'
+            elif state=='applied':
+                result['message']='设置已保存，内容未改变，无需重新应用。'
             else:
-                raise ValueError('未知配置页面。')
+                result['message']='设置已保存。现有部署尚无应用记录，可按需重新应用。'
+            return result
+
+    def _save(self, section, data):
+        app, backup = self.paths()
+        if section == 'core':
+            return self.save_core(data, app)
+        if section == 'mail':
+            if not (app / 'vaultwarden.env').exists():
+                raise ValueError('请先保存密码库配置。')
+            keys = ('SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_FROM', 'SMTP_USERNAME')
+            updates = {key: text(data.get(key, ''), key) for key in keys}
+            if updates['SMTP_PORT']:
+                number(updates['SMTP_PORT'], '邮件端口', 1, 65535)
+            if updates['SMTP_SECURITY'] not in ('starttls', 'force_tls', 'off'):
+                raise ValueError('请选择邮件加密方式。')
+            if data.get('SMTP_PASSWORD'):
+                updates['SMTP_PASSWORD'] = secret_text(data['SMTP_PASSWORD'], '邮件密码')
+            update_vars(app / 'vaultwarden.env', updates)
+        elif section in ('advanced','push','notifications','targets'):
+            self.save_extended(section,data)
+        elif section == 'backup':
+            if not (app / 'docker-compose.yml').exists():
+                raise ValueError('请先配置密码库。')
+            cron = data.get('CRON', '')
+            if not isinstance(cron,str) or len(cron.split())!=5 or not re.fullmatch(r'[0-9* /,\-]+',cron):
+                raise ValueError('请输入标准五段 CRON 表达式。')
+            bounds=((0,59),(0,23),(1,31),(1,12),(0,7))
+            for part,(low,high) in zip(cron.split(),bounds):
+                for item in part.split(','):
+                    base,sep,step=item.partition('/')
+                    if sep and (not step.isdigit() or not 1<=int(step)<=high+1):raise ValueError('CRON 步长无效。')
+                    if base!='*':
+                        values=base.split('-')
+                        if len(values)>2 or any(not v.isdigit() or not low<=int(v)<=high for v in values):raise ValueError('CRON 数值超出范围。')
+                        if len(values)==2 and int(values[0])>int(values[1]):raise ValueError('CRON 范围无效。')
+            timezone = text(data.get('TIMEZONE', 'Asia/Shanghai'), '时区')
+            if not re.fullmatch(r'[A-Za-z_]+(?:/[A-Za-z0-9_+\-]+)+|UTC', timezone):
+                raise ValueError('时区格式不正确。')
+            updates = {'CRON': cron, 'TIMEZONE': timezone,
+                       'BACKUP_KEEP_DAYS': number(data.get('BACKUP_KEEP_DAYS'), '保留天数', 0, 3650)}
+            old = read_vars(backup / 'backup.env')
+            if data.get('ZIP_PASSWORD'):
+                password = secret_text(data['ZIP_PASSWORD'], '备份密码')
+                if len(password) < 12:
+                    raise ValueError('备份密码至少 12 个字符。')
+                updates['ZIP_PASSWORD'] = password
+            elif not old.get('ZIP_PASSWORD'):
+                raise ValueError('首次配置请设置备份加密密码。')
+            if not (backup / 'docker-compose.yml').exists():
+                updates.update(RCLONE_REMOTE_NAME='BitwardenBackup', RCLONE_REMOTE_DIR='/bitwarden/backup/archive',
+                               BACKUP_FILE_SUFFIX='%Y%m%d-%H%M%S')
+                for name in ('backups', 'vw-backup-config/rclone'):
+                    (backup / name).mkdir(parents=True, exist_ok=True)
+                write_private(backup / 'vw-backup-config/rclone/rclone.conf', '[BitwardenBackup]\ntype = local\n')
+                compose = {'services': {'backup': {'image': 'ttionya/vaultwarden-backup:latest',
+                    'container_name': 'vaultwarden-backup', 'restart': 'unless-stopped',
+                    'env_file': ['./backup.env'], 'volumes': ['../vaultwarden/data:/bitwarden/data:ro',
+                    './backups:/bitwarden/backup', './vw-backup-config:/config']}}}
+                write_private(backup / 'docker-compose.yml', json.dumps(compose, indent=2))
+            update_vars(backup / 'backup.env', updates)
+        else:
+            raise ValueError('未知配置页面。')
         return {'ok': True, 'message': '已保存。点击“应用配置”后生效。'}
+
 
     def save_core(self, data, app):
         current = self.config()
@@ -341,7 +418,7 @@ class Manager(OperationsMixin):
                 Path(self.logfile.name).unlink(missing_ok=True)
             self.logfile = tempfile.NamedTemporaryFile(mode='w+b', delete=False, dir=self.state, prefix='panel-task-', suffix='.log')
             self.job = {'id': secrets.token_hex(8), 'state': 'running', 'title': titles[action],
-                        'output': '', 'error': '', 'started': time.time()}
+                        'output': '', 'error': '', 'action': action, 'started': time.time()}
         threading.Thread(target=self._run, args=(action, password, guard), daemon=True).start()
         return self.task()
 
@@ -373,12 +450,15 @@ class Manager(OperationsMixin):
         return raw
 
     def _run(self, action, password, guard):
+        before = {}; succeeded = False
         try:
+            before = {scope: self.revision(scope) for scope in ('core', 'backup')}
             app, backup = self.paths()
             memory = read_vars(self.memory)
             if action in EXTRA_TASKS:
                 self.run_extended(action,password)
-                with self.mutex:self.job['state']='success'
+                if action=='upgrade-backup':self.note_applied('backup')
+                succeeded=True
                 return
             if not (app / 'docker-compose.yml').exists() and action not in ('logs', 'backup-logs', 'install-docker'):
                 raise ValueError('请先保存密码库配置。')
@@ -431,7 +511,7 @@ class Manager(OperationsMixin):
                     write_private(config.with_name('rclone.conf.panel-backup'), original)
                 write_private(config, candidate)
                 update_vars(backup / 'backup.env', {'RCLONE_REMOTE_NAME': 'PanelWebDAV', 'RCLONE_REMOTE_DIR': password['directory']})
-                self.logfile.write('WebDAV 连接验证成功，配置已保存。请点击启用 / 应用备份使新目标生效。\n'.encode())
+                self.logfile.write(('WebDAV 连接验证成功，配置未变化，无需重新应用。\n' if before.get('backup')==self.revision('backup') else 'WebDAV 连接验证成功，配置已保存。应用备份配置后加载新目标。\n').encode())
             elif action in ('logs', 'backup-logs'):
                 self._command(['docker', 'logs', '--tail', '150', 'vaultwarden' if action == 'logs' else 'vaultwarden-backup'])
             elif action == 'stop':
@@ -470,13 +550,20 @@ class Manager(OperationsMixin):
                 result = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden'])
                 if result.strip() != 'true':
                     raise ValueError('容器未保持运行，请查看服务日志。')
-            with self.mutex:
-                self.job['state'] = 'success'
+            if action in ('deploy','upgrade'):self.note_applied('core')
+            if action in ('backup-start','upgrade') and self.revision('backup'):self.note_applied('backup')
+            succeeded=True
         except (ValueError, OSError, subprocess.SubprocessError, configparser.Error, sqlite3.Error, tarfile.TarError) as error:
             with self.mutex:
                 self.job.update(state='failed', error=str(error))
         finally:
-            guard.__exit__(None, None, None)
+            try:
+                self.note_changes(before)
+                if succeeded:
+                    with self.mutex:self.job['state']='success'
+            except (OSError,ValueError):
+                with self.mutex:self.job.update(state='failed',error='配置应用记录保存失败，请检查面板状态目录权限。')
+            finally:guard.__exit__(None, None, None)
 
 
 if __name__ == '__main__':

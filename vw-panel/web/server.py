@@ -250,13 +250,15 @@ def status():
     try:
         result = subprocess.run(['docker', 'ps', '-a', '--format', '{{json .}}'], capture_output=True, text=True, timeout=8)
         if result.returncode:
-            return {'available': False, 'message': 'Docker 未运行或权限不足。', 'containers': []}
+            return {'available': False, 'docker_installed': True, 'message': 'Docker 未运行或权限不足。', 'containers': []}
         rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        return {'available': True, 'containers': [
+        return {'available': True, 'docker_installed': True, 'containers': [
             {key: row.get(key, '') for key in ('Names', 'State', 'Status', 'Image')}
             for row in rows if row.get('Names') in ('vaultwarden', 'vaultwarden-backup', 'caddy')]}
+    except FileNotFoundError:
+        return {'available': False, 'docker_installed': False, 'message': '尚未安装 Docker。', 'containers': []}
     except (OSError, subprocess.TimeoutExpired, ValueError):
-        return {'available': False, 'message': '尚未安装 Docker；首次打开脚本时可按提示安装。', 'containers': []}
+        return {'available': False, 'docker_installed': True, 'message': 'Docker 状态读取失败，请检查服务、权限或稍后刷新。', 'containers': []}
 
 
 class Handler(BaseHTTPRequestHandler):
