@@ -27,6 +27,9 @@ import time
 from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from manager import Manager
+
 SCRIPT = ROOT.parent / 'vw_web.sh'
 ACTIONS = {str(i) for i in range(1, 19)}
 PROMPT = '请选择操作 [1-18, q]: '
@@ -171,6 +174,7 @@ class Application:
         self.attempts = collections.OrderedDict()
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
+        self.manager = Manager(self.state_dir)
 
     def allowed_origin(self, value):
         try:
@@ -255,7 +259,7 @@ def status():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'VWPanel/0.2'
+    server_version = 'VWPanel/0.3'
 
     @property
     def app(self):
@@ -276,7 +280,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Set-Cookie', cookie)
         self.end_headers()
         try:
-            self.wfile.write(body)
+            if self.command != 'HEAD':
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
@@ -287,6 +292,9 @@ class Handler(BaseHTTPRequestHandler):
             urlsplit(item).scheme == 'https' and urlsplit(item).netloc == self.headers.get('Host')
             for item in self.app.config.get('origins', []))
         return 'vw_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%s%s' % (value, age, '; Secure' if secure else '')
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def do_GET(self):
         if not self.app.allowed_host(self.headers.get('Host', '')):
@@ -305,6 +313,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, status())
         if path == '/api/settings':
             return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', [])})
+        if path == '/api/config':
+            try:
+                return self.reply(200, self.app.manager.config())
+            except (OSError, ValueError):
+                return self.reply(500, {'error': '读取部署配置失败，请检查目录权限。'})
+        if path == '/api/task':
+            return self.reply(200, self.app.manager.task())
         if path == '/api/terminal':
             query = parse_qs(urlsplit(self.path).query)
             try:
@@ -355,12 +370,21 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data.get('origin'), str):
                     raise ValueError('请输入域名访问地址。')
                 return self.reply(200, {'origin': self.app.domain(data['origin'])})
+            if path.startswith('/api/config/') or path == '/api/task/start':
+                with self.app.operation_lock:
+                    if self.app.terminal.state()['running']:
+                        raise ValueError('请先结束高级控制台，再使用表单或任务按钮。')
+                    if path == '/api/task/start':
+                        return self.reply(200, self.app.manager.start(data.get('action'), data))
+                    return self.reply(200, self.app.manager.save(path.rsplit('/', 1)[-1], data))
             # Serialize start/stop/input, so a slow stop cannot terminate a new session.
             with self.app.operation_lock:
                 if path == '/api/terminal/start':
                     action = data.get('action')
                     if action is not None and (not isinstance(action, str) or action not in ACTIONS):
                         raise ValueError('未知功能。')
+                    if self.app.manager.task()['state'] == 'running':
+                        raise ValueError('后台任务正在执行，请完成后再打开高级工具。')
                     self.app.terminal.start(action)
                 elif path == '/api/terminal/input':
                     value = data.get('text')

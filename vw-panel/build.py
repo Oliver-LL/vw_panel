@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 # Maintain vw_web.sh directly; packaging must never overwrite source files.
 if hashlib.sha256((ROOT / 'vw_original.sh').read_bytes()).hexdigest() != '756b783a388b087ff48af8db93273543a2ea2ea7009bdcfd50201e671d044aff':
     raise SystemExit('Original script snapshot changed; refusing to package.')
-paths = ['vw_web.sh', 'vw_original.sh', 'web/server.py', 'web/tty_worker.py', 'web/static/index.html', 'web/static/app.js', 'web/static/style.css']
+paths = ['vw_web.sh', 'vw_original.sh', 'web/server.py', 'web/manager.py', 'web/tty_worker.py', 'web/static/index.html', 'web/static/app.js', 'web/static/style.css']
 buffer = io.BytesIO()
 with tarfile.open(fileobj=buffer, mode='w') as archive:
     for path in paths:

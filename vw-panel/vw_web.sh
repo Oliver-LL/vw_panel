@@ -2555,6 +2555,12 @@ confirm_domain_dns_or_abort() {
 get_env_var() {
     local file="$1"
     local key="$2"
+    # Form-managed dotenv values use literal quoting. Decode without executing them.
+    local reader="$(dirname -- "${BASH_SOURCE[0]}")/web/manager.py"
+    if [ -f "$reader" ]; then
+        python3 "$reader" "$file" "$key"
+        return $?
+    fi
     if [ -f "$file" ]; then
         awk -F '=' -v k="$key" '$1 == k { sub(/^[^=]*=/, "", $0); print $0; exit }' "$file"
     fi
