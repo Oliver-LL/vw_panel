@@ -31,3 +31,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 终端菜单使用 `vwp`，不安装 `vmp` 别名。`vwp bash` 为共享网页配置的兼容菜单；`vwp original` 是未修改的原始快照，进入前会说明配置格式差异。
 
 发布前运行 `python3 vw-panel/build.py`，将生成的 `install-vw-web.sh`、`version.json`、`release.json` 与代码一并提交。
+
+## 0.5.1 修复
+
+刷新页面先检查会话，不再闪现登录页。重新登录时取消旧请求并忽略迟到的响应，避免旧会话的 401 打断新登录。网络异常显示重试入口；重装或重启面板后仍需重新登录一次。发布安装包和更新元数据已同步。
