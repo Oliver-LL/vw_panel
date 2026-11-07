@@ -19,12 +19,13 @@ import secrets
 import select
 import signal
 import struct
+import shutil
 import subprocess
 import sys
 import termios
 import threading
 import time
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, quote
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -259,7 +260,7 @@ def status():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'VWPanel/0.3'
+    server_version = 'VWPanel/0.4'
 
     @property
     def app(self):
@@ -313,6 +314,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, status())
         if path == '/api/settings':
             return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', [])})
+        if path == '/api/backups/download':
+            try:
+                query=parse_qs(urlsplit(self.path).query)
+                file=self.app.manager.archive_path(query.get('file',[''])[0])
+                with file.open('rb') as source:
+                    self.send_response(200)
+                    self.send_header('Content-Type','application/octet-stream')
+                    self.send_header('Content-Length',str(file.stat().st_size))
+                    self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(file.name))
+                    self.send_header('Cache-Control','no-store')
+                    self.send_header('X-Content-Type-Options','nosniff')
+                    self.end_headers()
+                    if self.command!='HEAD':shutil.copyfileobj(source,self.wfile)
+                return
+            except (ValueError,OSError):
+                return self.reply(404,{'error':'备份文件不可读取。'})
         if path == '/api/config':
             try:
                 return self.reply(200, self.app.manager.config())
@@ -332,11 +349,44 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin', '')
         if not self.app.allowed_origin(origin) or urlsplit(origin).netloc != self.headers.get('Host'):
             return self.reply(403, {'error': '请求来源不匹配。请使用面板 IP 地址或已配置的域名。'})
+        if urlsplit(self.path).path=='/api/backup/upload':
+            auth=self.app.auth(self.headers.get('Cookie'))
+            if not auth:return self.reply(401,{'error':'请先登录。'})
+            if not hmac.compare_digest(self.headers.get('X-CSRF-Token',''),auth[1]):
+                return self.reply(403,{'error':'请求校验失败。'})
+            temporary=None
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0<size<=2*1024**3:return self.reply(413,{'error':'备份文件大小须在 1 字节～2 GiB。'})
+                name=parse_qs(urlsplit(self.path).query).get('name',[''])[0]
+                if not name or Path(name).name!=name or any(ord(c)<32 for c in name) or not name.lower().endswith(('.zip','.7z')):
+                    raise ValueError('请选择 zip 或 7z 备份。')
+                with self.app.operation_lock, self.app.manager.exclusive():
+                    if self.app.terminal.state()['running']:raise ValueError('请先结束高级控制台。')
+                    _,backup=self.app.manager.paths()
+                    folder=backup/'backups'/'uploaded';folder.mkdir(parents=True,exist_ok=True)
+                    if shutil.disk_usage(folder).free<size+512*1024**2:raise ValueError('剩余空间不足，无法上传备份。')
+                    target=folder/(secrets.token_hex(5)+'-'+name)
+                    temporary=target.with_name(target.name+'.uploading')
+                    self.connection.settimeout(300)
+                    fd=os.open(temporary,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+                    with os.fdopen(fd,'wb') as output:
+                        remaining=size
+                        while remaining:
+                            chunk=self.rfile.read(min(1024*1024,remaining))
+                            if not chunk:raise ValueError('文件上传不完整。')
+                            output.write(chunk);remaining-=len(chunk)
+                    os.replace(temporary,target)
+                return self.reply(200,{'ok':True,'file':'uploaded/'+target.name})
+            except (ValueError,OSError,TimeoutError) as error:
+                return self.reply(409,{'error':str(error)})
+            finally:
+                if temporary:temporary.unlink(missing_ok=True)
         if self.headers.get_content_type() != 'application/json':
             return self.reply(415, {'error': '只接受 JSON 请求。'})
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            if not 0 < size <= 16384:
+            if not 0 < size <= 65536:
                 return self.reply(413, {'error': '请求大小不合法。'})
             self.connection.settimeout(10)
             data = json.loads(self.rfile.read(size))
@@ -409,6 +459,7 @@ def main():
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--origin')
+    parser.add_argument('--bootstrap-secret-file', type=Path)
     args = parser.parse_args()
     config_path = args.state_dir / 'panel.json'
     credentials = args.state_dir / 'credentials.json'
@@ -419,11 +470,19 @@ def main():
             ipaddress.ip_address(args.host)
             atomic_json(config_path, {'port': args.port, 'host': args.host, 'origins': []})
         if args.command == 'reset-password' or not credentials.exists():
-            password = getpass.getpass('设置管理员密码（至少 12 个字符）: ')
-            if len(password) < 12 or password != getpass.getpass('再次输入密码: '):
+            password = getpass.getpass('设置管理员密码（至少 12 个字符，回车随机生成）: ')
+            generated = not password
+            if generated:
+                password = secrets.token_urlsafe(18)
+            elif len(password) < 12 or password != getpass.getpass('再次输入密码: '):
                 raise SystemExit('密码太短或两次输入不一致。')
             salt = secrets.token_hex(16)
             atomic_json(credentials, {'salt': salt, 'hash': digest(password, salt)})
+            if args.bootstrap_secret_file:
+                from manager import write_private
+                write_private(args.bootstrap_secret_file, password)
+            elif generated or args.command == 'reset-password':
+                print('管理员密码：' + password)
             print('密码已保存。')
         return
     if not config_path.exists() or not credentials.exists():

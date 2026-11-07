@@ -15,3 +15,11 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 密码库、注册权限、邮件与备份改为原生表单；部署、升级和备份通过后台任务执行，显示真实结果。支持 WebDAV 连接验证，保留旧部署与未修改的密码。原脚本控制台默认折叠，仅用于高级维护。
 
 [功能、使用方法与开发说明](vw-panel/README.md)
+
+## 0.4 更新
+
+支持原脚本 18 个主功能的独立网页操作，包括云盘向导、多目标备份、Push、通知、诊断、恢复与按范围卸载。宽屏页面随窗口展开。安装时端口/密码回车随机生成，成功后显示；升级保留已有配置。
+
+终端执行 `sudo vw-panel` 打开管理菜单，`sudo vw-panel original` 进入原始脚本，`sudo vw-panel uninstall` 仅卸载面板并保留密码库和备份。安装文件无参数时显示安装/升级、原始脚本、管理和卸载菜单。
+
+[完整说明与功能对照](vw-panel/README.md)

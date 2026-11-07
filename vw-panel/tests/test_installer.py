@@ -77,6 +77,8 @@ if sys.argv[1] in ('restart','start'):
             try:
                 with patch.dict(os.environ, env):
                     terminal.start()
+                    eventually(lambda: '请选择 [默认 1]' in terminal.state()['output'])
+                    terminal.send('1\n')
                     eventually(lambda: '面板访问端口' in terminal.state()['output'])
                     terminal.send(str(port)+'\n')
                     eventually(lambda: '设置管理员密码' in terminal.state()['output'])
@@ -98,6 +100,8 @@ if sys.argv[1] in ('restart','start'):
                     old_credentials=(root/'state/credentials.json').read_bytes()
                     # Upgrade is noninteractive and preserves credentials + config.
                     terminal.start()
+                    eventually(lambda: '请选择 [默认 1]' in terminal.state()['output'])
+                    terminal.send('1\n')
                     eventually(lambda: terminal.state()['exit_code'] is not None, timeout=25)
                     self.assertEqual(terminal.state()['exit_code'],0,terminal.state()['output'])
                     self.assertEqual(old_credentials,(root/'state/credentials.json').read_bytes())

@@ -121,9 +121,10 @@ class ManagerTests(unittest.TestCase):
         caddy = self.deploy / 'caddy/Caddyfile'
         original = caddy.read_text()
         self.assertIn('vault.example.com', original)
-        with self.assertRaises(ValueError):
-            self.manager.save('core', dict(self.data, DOMAIN='https://other.example.com'))
-        self.assertEqual(original, caddy.read_text())
+        self.manager.save('core', dict(self.data, DOMAIN='https://other.example.com'))
+        self.assertIn('other.example.com',caddy.read_text())
+        self.assertNotIn('vault.example.com',caddy.read_text())
+        self.assertEqual(original,caddy.with_name('Caddyfile.panel-backup').read_text())
 
     def test_webdav_validates_before_switching_and_preserves_other_remotes(self):
         self.configured()
@@ -195,6 +196,13 @@ class HTTPRoutesTests(unittest.TestCase):
             status, body = request('GET', '/api/config')
             self.assertEqual(status, 200)
             self.assertTrue(json.loads(body)['configured'])
+            headers={'Origin':'http://127.0.0.1:%s'%port,'Content-Type':'application/octet-stream','Cookie':'vw_session=fixture','X-CSRF-Token':'csrf-fixture'}
+            conn.request('POST','/api/backup/upload?name=fixture.zip',b'archive fixture',headers)
+            uploaded=conn.getresponse();self.assertEqual(uploaded.status,200)
+            name=json.loads(uploaded.read())['file']
+            status,body=request('GET','/api/backups/download?file='+name)
+            self.assertEqual(status,200);self.assertEqual(body,b'archive fixture')
+            self.assertEqual(request('GET','/api/backups/download?file=../private.zip')[0],404)
             self.assertEqual(request('HEAD', '/')[0], 200)
             self.assertEqual(request('POST', '/api/task/start', {'action': ['bad']})[0], 409)
         finally:

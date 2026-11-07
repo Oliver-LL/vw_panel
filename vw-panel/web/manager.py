@@ -12,6 +12,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import sqlite3
+import tarfile
 from urllib.parse import urlsplit
 
 
@@ -77,7 +79,10 @@ def number(value, label, low, high):
     return value
 
 
-class Manager:
+from operations import OperationsMixin, EXTRA_TASKS
+
+
+class Manager(OperationsMixin):
     def __init__(self, state_dir, memory=None):
         self.state = Path(state_dir)
         self.memory = memory or Path.home() / '.vw_deploy.conf'
@@ -119,7 +124,7 @@ class Manager:
                 'core': {key: core.get(key, '') for key in safe_keys},
                 'admin_set': bool(core.get('ADMIN_TOKEN')), 'smtp_password_set': bool(core.get('SMTP_PASSWORD')),
                 'backup': {key: bk.get(key, '') for key in ('CRON', 'BACKUP_KEEP_DAYS', 'TIMEZONE')},
-                'zip_password_set': bool(bk.get('ZIP_PASSWORD')), 'remote': self.remote_info(), 'files': self.files()}
+                'extras': self.extended_config(), 'zip_password_set': bool(bk.get('ZIP_PASSWORD')), 'remote': self.remote_info(), 'files': self.files()}
 
     def remote_info(self):
         _, backup = self.paths()
@@ -164,12 +169,23 @@ class Manager:
                 if data.get('SMTP_PASSWORD'):
                     updates['SMTP_PASSWORD'] = secret_text(data['SMTP_PASSWORD'], '邮件密码')
                 update_vars(app / 'vaultwarden.env', updates)
+            elif section in ('advanced','push','notifications','targets'):
+                self.save_extended(section,data)
             elif section == 'backup':
                 if not (app / 'docker-compose.yml').exists():
                     raise ValueError('请先配置密码库。')
                 cron = data.get('CRON', '')
-                if cron not in ('0 3 * * *', '0 */12 * * *', '0 */6 * * *', '0 * * * *'):
-                    raise ValueError('请选择备份频率。')
+                if not isinstance(cron,str) or len(cron.split())!=5 or not re.fullmatch(r'[0-9* /,\-]+',cron):
+                    raise ValueError('请输入标准五段 CRON 表达式。')
+                bounds=((0,59),(0,23),(1,31),(1,12),(0,7))
+                for part,(low,high) in zip(cron.split(),bounds):
+                    for item in part.split(','):
+                        base,sep,step=item.partition('/')
+                        if sep and (not step.isdigit() or not 1<=int(step)<=high+1):raise ValueError('CRON 步长无效。')
+                        if base!='*':
+                            values=base.split('-')
+                            if len(values)>2 or any(not v.isdigit() or not low<=int(v)<=high for v in values):raise ValueError('CRON 数值超出范围。')
+                            if len(values)==2 and int(values[0])>int(values[1]):raise ValueError('CRON 范围无效。')
                 timezone = text(data.get('TIMEZONE', 'Asia/Shanghai'), '时区')
                 if not re.fullmatch(r'[A-Za-z_]+(?:/[A-Za-z0-9_+\-]+)+|UTC', timezone):
                     raise ValueError('时区格式不正确。')
@@ -261,7 +277,20 @@ class Manager:
             write_private(self.memory, '\n'.join('%s="%s"' % (k, v) for k, v in memory.items()) + '\n')
             updates.update(TZ='Asia/Shanghai', WEB_VAULT_ENABLED='true', ENABLE_DB_WAL='true')
         elif current['mode'] == 'caddy' and current['core'].get('DOMAIN') != domain.rstrip('/'):
-            raise ValueError('现有 Caddy 部署的域名更换需同步证书与代理配置，请在高级工具中修改。')
+            caddy_file=Path(memory.get('CADDY_DIR','/nonexistent'))/'Caddyfile'
+            if not caddy_file.exists():raise ValueError('没有找到已管理的 Caddy 配置文件。')
+            content=caddy_file.read_text()
+            old_host=urlsplit(current['core'].get('DOMAIN','')).netloc
+            begin='# BEGIN VW_MANAGED '+old_host
+            end='# END VW_MANAGED '+old_host
+            if begin in content and end in content:
+                replacement='# BEGIN VW_MANAGED '+p.netloc+'\n'+p.netloc+' {\n reverse_proxy vaultwarden:80\n}\n# END VW_MANAGED '+p.netloc
+                content=content[:content.index(begin)]+replacement+content[content.index(end)+len(end):]
+            elif content.count('reverse_proxy')==1 and content.count('{')==1 and old_host in content:
+                content=content.replace(old_host,p.netloc,1)
+            else:raise ValueError('未识别到独立或带管理标记的站点配置，已保留原文件。')
+            write_private(caddy_file.with_name('Caddyfile.panel-backup'),caddy_file.read_text())
+            write_private(caddy_file,content)
         update_vars(app / 'vaultwarden.env', updates)
         return {'ok': True, 'message': '密码库配置已保存。首次部署请设置管理口令，再点击“部署 / 应用配置”。'}
 
@@ -279,11 +308,14 @@ class Manager:
         titles = {'deploy': '部署 / 应用配置', 'stop': '停止密码库', 'upgrade': '升级密码库',
                   'backup-start': '应用备份配置', 'backup-stop': '停止自动备份', 'backup-now': '立即备份',
                   'admin-token': '加密管理口令', 'logs': '读取服务日志', 'backup-logs': '读取备份日志', 'install-docker': '安装 Docker', 'remote-save': '连接 WebDAV 备份存储'}
+        titles.update(EXTRA_TASKS)
         if not isinstance(action, str) or action not in titles:
             raise ValueError('未知操作。')
         if action in ('stop', 'upgrade', 'backup-stop', 'install-docker') and data.get('confirmed') is not True:
             raise ValueError('请确认此操作。')
-        if action == 'admin-token':
+        if action in EXTRA_TASKS:
+            password=self.prepare_extended(action,data)
+        elif action == 'admin-token':
             password = secret_text(data.get('password', ''), '管理口令')
             if len(password) < 12:
                 raise ValueError('管理口令至少 12 个字符。')
@@ -318,32 +350,36 @@ class Manager:
             with self.mutex:
                 self.logfile.write(('正在执行：' + ' '.join(args[:3]) + '\n').encode())
                 self.logfile.flush()
-        with tempfile.TemporaryFile() as output:
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             try:
                 result = subprocess.run(args, input=input_text.encode() if input_text is not None else None,
-                                        stdout=output, stderr=output, timeout=900)
+                                        stdout=output, stderr=errors if secret else output, timeout=900)
             except subprocess.TimeoutExpired:
                 raise ValueError('操作超时，请检查容器日志后再重试。')
             output.seek(0)
-            raw = output.read(64000).decode('utf-8', 'replace')
+            raw = output.read(4*1024*1024 if secret else 64000).decode('utf-8', 'replace')
         if not secret:
             # Docker output may contain configuration secrets. Redact known env values.
             app, backup = self.paths()
             for path in (app / 'vaultwarden.env', backup / 'backup.env'):
                 for key, value in read_vars(path).items():
-                    if any(word in key for word in ('TOKEN', 'PASSWORD', 'SECRET')) and value:
+                    if any(word in key for word in ('TOKEN', 'PASSWORD', 'SECRET', 'KEY', 'SMTP_VARIABLES')) and value:
                         raw = raw.replace(value, '[已隐藏]').replace(value.replace('$$', '$'), '[已隐藏]')
             with self.mutex:
                 self.logfile.write(raw.encode())
                 self.logfile.flush()
         if result.returncode:
-            raise ValueError('命令执行失败，请查看任务详情。' if not secret else '口令加密失败，原口令未修改。')
+            raise ValueError('命令执行失败，请查看任务详情。' if not secret else '操作失败，请检查连接与配置。凭据未写入日志。')
         return raw
 
     def _run(self, action, password, guard):
         try:
             app, backup = self.paths()
             memory = read_vars(self.memory)
+            if action in EXTRA_TASKS:
+                self.run_extended(action,password)
+                with self.mutex:self.job['state']='success'
+                return
             if not (app / 'docker-compose.yml').exists() and action not in ('logs', 'backup-logs', 'install-docker'):
                 raise ValueError('请先保存密码库配置。')
             compose = lambda folder, *args: ['docker', 'compose', '--project-directory', str(folder), '-f', str(folder / 'docker-compose.yml'), *args]
@@ -383,8 +419,8 @@ class Manager:
                 with tempfile.TemporaryDirectory(dir=self.state) as directory:
                     trial = Path(directory) / 'rclone.conf'
                     write_private(trial, candidate)
-                    base = ['docker', 'run', '--rm', '-v', str(trial) + ':/config/rclone/rclone.conf:ro',
-                            'ttionya/vaultwarden-backup:latest', 'rclone']
+                    base = ['docker', 'run', '--rm', '-v', str(trial) + ':/config/rclone/rclone.conf:ro', '--entrypoint','rclone',
+                            'ttionya/vaultwarden-backup:latest']
                     target = 'PanelWebDAV:' + password['directory']
                     try:
                         self._command(base + ['mkdir', target], secret=True)
@@ -426,12 +462,17 @@ class Manager:
                 self._command(compose(app, 'up', '-d'))
                 if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
                     self._command(compose(Path(memory['CADDY_DIR']), 'up', '-d'))
+                if action=='upgrade' and (backup/'docker-compose.yml').exists():
+                    self._command(compose(backup,'pull'))
+                    self._command(compose(backup,'up','-d'))
+                if memory.get('PROXY_MODE')=='caddy':
+                    self._command(['docker','exec',memory.get('EXISTING_CADDY_ID') or 'caddy','caddy','reload','--config','/etc/caddy/Caddyfile'])
                 result = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden'])
                 if result.strip() != 'true':
                     raise ValueError('容器未保持运行，请查看服务日志。')
             with self.mutex:
                 self.job['state'] = 'success'
-        except (ValueError, OSError, subprocess.SubprocessError, configparser.Error) as error:
+        except (ValueError, OSError, subprocess.SubprocessError, configparser.Error, sqlite3.Error, tarfile.TarError) as error:
             with self.mutex:
                 self.job.update(state='failed', error=str(error))
         finally:

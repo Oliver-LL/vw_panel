@@ -1,4 +1,4 @@
-# Vaultwarden 网页管理面板 0.3
+# Vaultwarden 网页管理面板 0.4
 
 面向日常管理的表单面板：填写配置、点击部署、查看任务结果。常用功能不再要求输入脚本菜单编号。
 
@@ -10,7 +10,7 @@
 curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-panel/install-vw-web.sh -o install-vw-web.sh && sudo bash install-vw-web.sh
 ```
 
-首次安装设置面板端口（默认 8787）与管理员密码（至少 12 字符）。升级执行同一条命令，保留面板密码、端口、域名和原部署数据。新代码推送至公开仓库 `main` 分支后，下载地址才包含新版。
+首次运行先显示安装菜单：1 安装/升级面板、2 进入原始 Bash、3 面板管理、4 卸载面板、0 退出。端口直接回车随机选择空闲端口；密码直接回车生成 24 字符随机密码，自定义密码至少 12 字符。安装成功后终端集中显示地址、端口与密码，原文临时文件随后删除。升级执行同一条命令，保留面板密码、端口、域名和原部署数据。升级不随机重置已有端口和密码。新代码推送至公开仓库 `main` 分支后，下载地址才包含新版。
 
 环境：Linux、systemd、Bash 4+、Python 3.9+（需支持 scrypt）、flock。缺少 Python 时安装器尝试使用 apt/dnf/yum 安装。面板不依赖 npm 或 pip，Docker 可在登录后通过概览页安装。
 
@@ -35,18 +35,22 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 图形化功能
 
 - 概览：密码库与备份容器状态、最近本机备份、首次部署引导。
-- 密码库配置：域名、管理员邮箱、注册、邀请、Send 分享与管理口令。
+- 密码库配置：域名、管理员邮箱、注册、邀请、Send、WebSocket、网页端、紧急访问、WAL、登录限流、会话时间、时区、管理口令和 Push 开启/删除。
 - 邮件服务：SMTP 地址、端口、加密方式、发件邮箱、账号与授权码。
-- 备份保护：频率、保留天数、时区、加密密码、启用 / 暂停、立即备份与本机文件列表。
+- 备份保护：预设或自定义 CRON、保留天数、时区、加密密码、启用/暂停、立即备份、升级备份容器与本机文件列表。
+- 备份邮件：独立 SMTP 设置、成功/失败通知、会话聚合、关闭清理和测试邮件。
+- 数据恢复：上传/下载 zip、7z，本机恢复、远程备份浏览下载、数据库校验、保留旧数据与失败回滚。兼容原备份镜像的 db.日期.sqlite3、config.日期.json 和嵌套 tar。仅支持原脚本默认的 SQLite 部署。
+- 诊断：访问信息、系统状态、环境体检、备份远程投递检查和 Caddy 日志；日志支持定时刷新。
+- 卸载清理：选择主服务/备份/全部，默认保留配置与数据；永久删除需勾选并输入 DELETE。恢复需输入 RESTORE。
 - WebDAV：填写地址、账号、应用密码和目录，验证连接后切换目标。会创建远程目录；不搬迁或删除原备份。
 - 任务：部署、停止、升级、备份、日志读取与失败原因。任务按钮调用独立后端接口，不自动回答 Bash 菜单。
 - 面板设置：HTTPS 域名白名单及折叠的高级工具。
 
 密码字段不回填。留空时保留原密码；首次设置备份密码和管理口令至少 12 字符。管理口令通过 Argon2id 哈希后保存，原文不写入任务输出或配置。
 
-已有部署从 `~/.vw_deploy.conf` 读取目录与代理方式，不执行该文件。保存表单保留未修改的环境项、远程配置与其他配置键；修改环境文件前保留一份 `.panel-backup`。现有安装目录和代理拓扑不会通过表单重新生成。现有 Caddy 部署更换域名暂需高级工具同步代理配置。
+已有部署从 `~/.vw_deploy.conf` 读取目录与代理方式，不执行该文件。保存表单保留未修改的环境项、远程配置与其他配置键；修改环境文件前保留一份 `.panel-backup`。现有安装目录和代理拓扑不会通过表单重新生成。现有独立 Caddy 配置或带 VW_MANAGED 标记的站点可以在网页修改域名并同步配置；无法识别的共享站点拒绝覆盖。
 
-新建备份默认在本机保存加密归档。已有远程目标在修改备份计划时保持原样。本机副本不能抵御服务器损坏；可连接 WebDAV 远程存储。OneDrive 等需要 OAuth 的云盘、数据恢复和卸载仍在“面板设置 → 高级工具”中完成，尚未改成原生表单。
+新建备份默认在本机保存加密归档。已有远程目标在修改备份计划时保持原样。本机副本不能抵御服务器损坏；可连接 WebDAV 远程存储。远程存储页面使用 Rclone 官方非交互配置协议逐项生成表单，支持加载全部存储类型、重新配置/授权、验证连接、查询容量与身份、脱敏配置展示、删除配置和多目标目录。OAuth 仍需按服务商要求完成外部授权；向导会显示服务商提供的步骤，部分服务商可能要求在有浏览器的设备上取得授权结果，再回填隐藏输入。不会将令牌写入任务日志。
 
 ## 操作与日志
 
@@ -61,6 +65,10 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 面板域名与 SSH 管理
 
 ```bash
+sudo vw-panel               # 交互管理菜单
+sudo vw-panel original      # 原始 Bash 脚本
+sudo vw-panel bash          # 与网页共用锁的兼容分支
+sudo vw-panel uninstall     # 只卸载面板，保留密码库和备份
 sudo vw-panel info
 sudo vw-panel status
 sudo vw-panel logs
@@ -72,6 +80,33 @@ sudo vw-panel domain https://panel.example.com
 
 域名需先配置 DNS，再将 Nginx / NPM / Caddy 的 HTTPS 反代指向面板。宿主机反代目标为 `http://127.0.0.1:面板端口`，容器中的 NPM 使用其可访问的宿主机 IP。保留浏览器原始 Host，包括非标准端口：`proxy_set_header Host $http_host;`。
 
+## 终端卸载与安装菜单
+
+`sudo vw-panel uninstall` 要求输入 `UNINSTALL`，停止并禁用面板服务，移除面板程序与终端命令；另行询问是否清除面板密码与域名设置，默认保留。它不移除密码库、Caddy、备份或 Docker。有网页任务运行时拒绝卸载。
+
+同一安装文件支持 `--install`、`--original`、`--menu`、`--uninstall`；无参数时显示菜单。`--extract 目录` 仍只解包。
+
+## 原脚本功能对照
+
+| 原菜单 | 原功能 | 网页入口 |
+|---|---|---|
+| 1 | 生成主服务配置 | 密码库配置 |
+| 2 | 初始化备份 | 备份与保护 |
+| 3 | Rclone 存储 | 远程存储、WebDAV 快速配置 |
+| 4 / 5 | 主服务启停 | 概览、部署/停止按钮 |
+| 6 / 7 | 备份启停 | 备份与保护 |
+| 8 | 升级服务 | 升级密码库及备份服务按钮 |
+| 9 | 管理口令加密 | 密码库配置 |
+| 10 | 主服务参数、邮件、Push | 密码库配置、邮件服务 |
+| 11 | 备份参数、目标、通知 | 备份与保护、远程存储 |
+| 12 | 立即备份 | 概览、备份与保护 |
+| 13 | 访问与系统状态 | 诊断与状态 |
+| 14 | 服务日志 | 任务与日志 |
+| 15 | 备份诊断 | 诊断与状态 |
+| 16 | 备份恢复 | 备份与恢复 |
+| 17 | 环境体检 | 诊断与状态 |
+| 18 | 卸载清理 | 卸载与清理 |
+
 ## 本地开发
 
 本目录是面板开发目录，直接修改源码。打包不会覆盖 `vw_web.sh`。
@@ -79,6 +114,8 @@ sudo vw-panel domain https://panel.example.com
 - `web/static/`：原生 HTML、CSS、JavaScript。
 - `web/server.py`：登录、会话、CSRF、HTTP 接口与旧控制台。
 - `web/manager.py`：配置读取、校验、保留式写入、Docker 任务和锁。
+- `web/operations.py`：完整运行参数、通知、多目标、Rclone 表单向导、诊断、恢复和服务卸载。
+- `panel-cli.sh`：终端菜单、原始脚本入口和面板卸载。
 - `web/tty_worker.py`：高级控制台 TTY。
 - `installer-header.sh`：系统安装逻辑。
 - `build.py`：打包本地代码，校验原始快照，生成单文件安装器。
@@ -92,10 +129,11 @@ sudo vw-panel domain https://panel.example.com
 python3 build.py
 python3 -m unittest discover -s tests -v
 node --check web/static/app.js
+node tests/ui-smoke.mjs  # 默认使用 macOS Chrome；其他环境设置 CHROME_BIN
 bash -n vw_web.sh
 bash install-vw-web.sh --extract /tmp/vw-panel-inspect
 ```
 
 `--extract` 只解包，不安装或启动服务。内置 SHA-256 校验检测载荷损坏，不是数字签名。
 
-新增测试覆盖密码保留、未知配置保留、文件权限、路径与输入校验、任务互斥、失败结果、WebDAV 验证失败时不切换、认证与 CSRF 和 HEAD 请求。Docker 执行使用模拟命令；浏览器检查使用模拟接口验证页面导航、表单、登录退出、任务入口与移动布局。尚未在真实 VPS 验收新版的 Docker 部署、WebDAV 传输、加密备份或数据恢复。
+新增测试覆盖密码保留、未知配置保留、文件权限、路径与输入校验、任务互斥、WebDAV 失败不切换、原备份格式恢复失败回滚、恶意链接拒绝、卸载保留数据、随机密码、终端卸载隔离、文件上传下载、认证与 CSRF 和 HEAD 请求。Docker 执行使用模拟命令；浏览器检查使用模拟接口验证页面导航、表单、登录退出、任务入口与移动布局。尚未在真实 VPS 验收新版的 Docker 部署、真实云盘 OAuth、WebDAV 传输、邮件投递或加密备份恢复。测试中的 Docker 与云盘返回值是模拟的，不代表这些外部流程已部署验收。

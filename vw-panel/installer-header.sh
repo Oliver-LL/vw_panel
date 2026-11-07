@@ -20,15 +20,44 @@ fi
 if [[ "${1:-}" == --help ]]; then
     echo '用法：sudo bash install-vw-web.sh'
     echo '      bash install-vw-web.sh --extract 目标目录'
+    echo '选项：--install 安装/升级；--original 原始脚本；--menu 管理菜单；--uninstall 卸载面板'
     exit 0
 fi
-[[ $# -eq 0 ]] || { echo '未知参数，请使用 --help。'; exit 1; }
+[[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --install || "$1" == --original || "$1" == --menu || "$1" == --uninstall ) ) ]] || { echo '未知参数，请使用 --help。'; exit 1; }
 [[ "$(uname -s)" == Linux ]] || { echo '请把安装文件上传到 Linux 服务器执行。'; exit 1; }
 [[ "$EUID" -eq 0 ]] || { echo '请执行 sudo bash install-vw-web.sh'; exit 1; }
 (( BASH_VERSINFO[0] >= 4 )) || { echo '需要 Bash 4 或更高版本。'; exit 1; }
 command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || { echo '需要使用 systemd 的 Linux 服务器（例如 Debian 12）。'; exit 1; }
 [[ -r /dev/tty && -w /dev/tty ]] || { echo '请在交互式 SSH 会话中执行。'; exit 1; }
 exec 3<>/dev/tty
+choice=1
+case "${1:-}" in
+    --original) choice=2;; --menu) choice=3;; --uninstall) choice=4;;
+    --install) choice=1;;
+    '')
+        echo '========== Vaultwarden 安装与管理 =========='
+        echo ' 1) 安装 / 升级网页面板'
+        echo ' 2) 进入原始 Bash 部署脚本'
+        echo ' 3) 已安装面板的管理菜单'
+        echo ' 4) 卸载网页面板（保留密码库和备份）'
+        echo ' 0) 退出'
+        read -r -p '请选择 [默认 1]: ' choice <&3
+        choice="${choice:-1}";;
+esac
+case "$choice" in
+    0|q|Q) exit 0;;
+    2)
+        original_tmp="$(mktemp -d)"; original_archive="$(mktemp)"
+        trap 'rm -rf -- "$original_tmp"; rm -f -- "$original_archive"' EXIT
+        extract_payload "$original_tmp" "$original_archive"
+        echo '原始脚本不受网页任务锁保护，请勿与网页同时部署或恢复。'
+        bash "$original_tmp/vw_original.sh"; exit $?;;
+    3|4)
+        [[ -x /usr/local/bin/vw-panel ]] || { echo '尚未安装网页面板。'; exit 1; }
+        if [[ "$choice" == 4 ]]; then exec /usr/local/bin/vw-panel uninstall; fi
+        exec /usr/local/bin/vw-panel menu;;
+    1) ;; *) echo '无效的菜单选项。'; exit 1;;
+esac
 if ! command -v python3 >/dev/null; then
     echo '正在安装 Python 3…'
     if command -v apt-get >/dev/null; then apt-get update; apt-get install -y python3;
@@ -42,13 +71,17 @@ mkdir -p /opt/vw-panel/releases /var/lib/vw-panel
 chmod 700 /var/lib/vw-panel
 exec 8>/var/lib/vw-panel/install.lock
 flock -n 8 || { echo '另一个安装器正在运行。'; exit 1; }
+exec 7>/var/lib/vw-panel/operation.lock
+flock -n 7 || { echo '有网页任务正在执行，请完成后再升级。'; exit 1; }
 if [[ -f /var/lib/vw-panel/panel.json ]]; then
     panel_port="$(python3 -c 'import json;print(json.load(open("/var/lib/vw-panel/panel.json"))["port"])')"
     echo "检测到已有面板，保留密码、端口 $panel_port 和域名配置，更新程序文件。"
 else
     while true; do
-        read -r -p '面板访问端口 [默认 8787]: ' panel_port <&3
-        panel_port="${panel_port:-8787}"
+        read -r -p '面板访问端口 [回车随机选择空闲端口]: ' panel_port <&3
+        if [[ -z "$panel_port" ]]; then
+            panel_port="$(python3 -c 'import socket;s=socket.socket();s.bind(("0.0.0.0",0));print(s.getsockname()[1]);s.close()')"
+        fi
         if python3 - "$panel_port" <<'PY'
 import socket,sys
 try:
@@ -62,12 +95,14 @@ PY
 fi
 stage="$(mktemp -d /opt/vw-panel/releases/.stage.XXXXXXXX)"
 archive="$(mktemp)"
-trap 'rm -f "$archive"; if [[ -n "${stage:-}" && -d "$stage" ]]; then rm -rf -- "$stage"; fi' EXIT
+bootstrap_secret="$(mktemp /var/lib/vw-panel/.bootstrap.XXXXXXXX)"
+chmod 600 "$bootstrap_secret"
+trap 'rm -f "$archive" "$bootstrap_secret"; if [[ -n "${stage:-}" && -d "$stage" ]]; then rm -rf -- "$stage"; fi' EXIT
 extract_payload "$stage" "$archive"
 chmod -R go-w "$stage"
 if [[ ! -f /var/lib/vw-panel/credentials.json ]]; then
     # getpass reads /dev/tty; works when installer is launched with process substitution.
-    until python3 "$stage/web/server.py" configure --state-dir /var/lib/vw-panel --port "$panel_port" --host 0.0.0.0; do
+    until python3 "$stage/web/server.py" configure --state-dir /var/lib/vw-panel --port "$panel_port" --host 0.0.0.0 --bootstrap-secret-file "$bootstrap_secret"; do
         echo '请重新设置管理员密码。'
     done
 fi
@@ -98,58 +133,7 @@ TimeoutStopSec=30
 [Install]
 WantedBy=multi-user.target
 EOF
-cat > /usr/local/bin/vw-panel <<'CLI'
-#!/usr/bin/env bash
-set -euo pipefail
-case "${1:-info}" in
-    password)
-        [[ "$EUID" -eq 0 ]] || { echo '请使用 sudo vw-panel password'; exit 1; }
-        python3 /opt/vw-panel/current/web/server.py reset-password --state-dir /var/lib/vw-panel
-        systemctl restart vw-panel
-        ;;
-    domain)
-        [[ "$EUID" -eq 0 ]] || { echo '请使用 sudo vw-panel domain https://面板域名'; exit 1; }
-        [[ -n "${2:-}" ]] || { echo '用法：sudo vw-panel domain https://vw-panel.example.com'; exit 1; }
-        python3 /opt/vw-panel/current/web/server.py domain --state-dir /var/lib/vw-panel --origin "$2"
-        systemctl restart vw-panel
-        ;;
-    port)
-        [[ "$EUID" -eq 0 ]] || { echo '请使用 sudo vw-panel port 新端口'; exit 1; }
-        python3 - "${2:-}" <<'PY'
-import json,socket,sys,os
-p='/var/lib/vw-panel/panel.json'
-c=json.load(open(p))
-try:
-    port=int(sys.argv[1]); assert 1024 <= port <= 65535
-    if port != c['port']:
-        with socket.socket() as s:s.bind((c['host'],port))
-except (ValueError,AssertionError,OSError):
-    raise SystemExit('端口必须在 1024～65535 之间且未被占用。')
-c['port']=port
-fd=os.open(p+'.new',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-with os.fdopen(fd,'w') as f:json.dump(c,f)
-os.replace(p+'.new',p)
-print('端口已更新为',port)
-PY
-        systemctl restart vw-panel
-        ;;
-    restart|stop|start|status) systemctl "$1" vw-panel ;;
-    logs) journalctl -u vw-panel -f ;;
-    info)
-        echo 'Vaultwarden 网页管理面板'
-        if [[ "$EUID" -eq 0 ]]; then
-            python3 - <<'PY'
-import json
-c=json.load(open('/var/lib/vw-panel/panel.json'))
-print('IP 访问：http://服务器IP:'+str(c['port']))
-for origin in c.get('origins',[]):print('域名访问：'+origin)
-PY
-        fi
-        echo '命令：sudo vw-panel status | logs | password | port 8787 | domain https://面板域名'
-        ;;
-    *) echo '命令：info、status、logs、password、port、domain、restart、stop、start'; exit 1 ;;
-esac
-CLI
+install -m 755 "$release/panel-cli.sh" /usr/local/bin/vw-panel
 chmod 755 /usr/local/bin/vw-panel
 systemctl daemon-reload
 systemctl enable vw-panel >/dev/null
@@ -179,7 +163,17 @@ echo
 echo '================ 安装完成 ================'
 echo "网页地址：http://${local_ip:-服务器IP}:$panel_port"
 echo "公网访问：http://你的服务器公网IP:$panel_port"
-echo '使用刚才设置的管理员密码登录。'
+if [[ -s "$bootstrap_secret" ]]; then
+    printf '管理员密码：'; cat "$bootstrap_secret"; echo
+    echo '请保存此密码，安装完成后不会在服务器保存密码原文。'
+else
+    echo '升级保留原面板密码；忘记后执行 sudo vw-panel password。'
+fi
+rm -f "$bootstrap_secret"
+echo "面板端口：$panel_port"
+echo '终端管理菜单：sudo vw-panel'
+echo '原始 Bash 脚本：sudo vw-panel original'
+echo '卸载网页面板：sudo vw-panel uninstall（保留密码库与备份）'
 echo "若无法访问，请在云安全组及服务器防火墙放行 TCP $panel_port。"
 echo '后续绑定域名：网页 → 面板设置，或 sudo vw-panel domain https://你的面板域名'
 echo '面板已设置开机启动；原有密码库和原脚本没有被改动。'
