@@ -1,4 +1,4 @@
-# Vaultwarden 网页管理面板 0.7.11
+# Vaultwarden 网页管理面板 0.7.12
 
 面向日常管理的表单面板：填写配置、点击部署、查看任务结果。常用功能不再要求输入脚本菜单编号。配置页面按组点击展开，默认只展开主要配置；收起时显示简短状态，未保存的表单值会保留，校验错误会自动展开对应分组。
 
@@ -60,7 +60,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 
 “更多主服务环境配置”和“更多备份环境配置”默认折叠，可按名称、用途或分类搜索，按需添加、修改或恢复默认值。目录对照 2026-11-09 的 [Vaultwarden 官方模板](https://github.com/dani-garcia/vaultwarden/blob/main/.env.template)（142 项，加时区与旧 WebSocket 别名）和 [备份镜像文档](https://github.com/ttionya/vaultwarden-backup#environment-variables)（32 项）。邮件细项、SSO、日志、限额、Webhook 和 Rclone 额外参数等通过此入口配置。镜像版本不同可能不支持最新上游选项，请同时核对所用版本。
 
-已有专用表单的变量提供“前往设置”，避免同一选项在两处修改；容器监听地址、数据根目录和 TLS 等由部署管理，不能在高级表单中改成与容器挂载不一致的配置。多组 Rclone 目标继续在“远程存储”管理。未收录的已有变量保持原样，隐藏原值，不开放任意名称写入。
+已有专用表单的变量提供“前往设置”，避免同一选项在两处修改；容器监听地址、数据根目录和 TLS 等由部署管理，不能在高级表单中改成与容器挂载不一致的配置。多组 Rclone 目标在“备份设置 → 备份目标与保存目录”管理，可分别选择存储名称（RCLONE_REMOTE_NAME）和填写目录（RCLONE_REMOTE_DIR）；“远程存储”负责新增和授权存储。未收录的已有变量保持原样，隐藏原值，不开放任意名称写入。
 
 敏感值不会回显，留空保留；“恢复默认”在保存时移除该项环境变量，回到镜像默认值。保存只修改所选服务的环境文件，应用服务配置后生效，不跳转日志。若变量被密码库 `/admin` 的 `config.json` 覆盖，页面会提示，应先在 `/admin` 核对；删除环境项不会删除那里的配置。WebSocket 使用当前上游名称 `ENABLE_WEBSOCKET`，没有新名称时兼容读取旧的 `WEBSOCKET_ENABLED`。
 

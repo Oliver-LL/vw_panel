@@ -23,6 +23,8 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(len(CATALOG['backup']),32)
         for scope,keys in [('core',['TZ','DOMAIN','LOGIN_RATELIMIT_SECONDS','ADMIN_TOKEN','ENABLE_WEBSOCKET','SMTP_HOST','SSO_CLIENT_SECRET']),('backup',['ZIP_TYPE','PING_URL_WHEN_FAILURE','DATA_DB','RCLONE_REMOTE_NAME','MAIL_SMTP_VARIABLES'])]:
             for key in keys:self.assertIn(key,definitions(scope))
+        self.assertEqual(definitions('backup')['RCLONE_REMOTE_NAME']['page'],'backup')
+        self.assertEqual(definitions('backup')['RCLONE_REMOTE_DIR']['location'],'备份目标与保存目录')
         env=self.configured();original=env.read_text()
         for key in ['DOMAIN','ADMIN_TOKEN','ROCKET_ADDRESS','DATA_FOLDER','WEBSOCKET_ENABLED','PUSH_INSTALLATION_KEY']:
             with self.subTest(key=key),self.assertRaises(ValueError):self.manager.save('core-env',{'values':{key:'anything'}})
