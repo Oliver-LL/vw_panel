@@ -146,8 +146,8 @@ class ManagedProxyIntegrationTests(unittest.TestCase):
         self.assertEqual(self.manager.config()['application']['core'],'applied')
     def test_nginx_logs_include_certificate_renewal_service(self):
         self.configure('nginx')
-        with patch.object(self.manager,'_command',side_effect=self.command):self.manager.run_extended('proxy-logs',{})
-        self.assertEqual([cmd[-1] for cmd in self.calls],['vw-panel-nginx','vw-panel-certbot'])
+        with patch.object(self.manager,'_command',side_effect=self.command),patch('proxy_environment.detect_environment',return_value={'proxies':[{'id':'a'*12,'name':'vw-panel-nginx','kind':'Nginx','source':'docker','running':True,'networks':['vaultwarden_net']}]}):self.manager.run_extended('proxy-logs',{})
+        self.assertEqual([cmd[-1] for cmd in self.calls],['a'*12,'vw-panel-certbot'])
 
 class ManagedProxyOwnershipTests(unittest.TestCase):
     def test_running_nginx_does_not_hide_foreign_renewal_container(self):

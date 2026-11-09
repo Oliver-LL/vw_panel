@@ -68,12 +68,14 @@ def proxy_kind(row):
 
 def detect_environment():
     ports, checked = busy_web_ports()
-    result = {'available': False, 'complete': True, 'proxies': [], 'busy_ports': ports,
+    hosts,host_checked=host_proxies()
+    result = {'available': False, 'docker_installed':True, 'host_checked':host_checked, 'complete': True, 'proxies': list(hosts), 'busy_ports': ports,
               'ports_checked': checked, 'message': ''}
     try:
         rows = docker(['ps', '-a', '--format', '{{json .}}'])
         if rows.returncode:
             result['message'] = 'Docker 未运行或无读取权限，无法检测现有反代。'
+            result['recommendation']=recommendation(result)
             return result
         result['available'] = True
         deadline = time.monotonic() + 12
@@ -115,15 +117,17 @@ def detect_environment():
                 if networks[name]:
                     usable.append(name)
             result['proxies'].append({'id': container, 'name': str(info.get('name', '')).lstrip('/'),
-                                      'kind': proxy_kind(row), 'running': info.get('running') is True,
+                                      'kind': proxy_kind(row), 'source':'docker', 'running': info.get('running') is True,
                                       'networks': usable})
         if not result['complete']:
             result['message'] = '部分容器信息未能读取，请重新检测；本次不会自动选择网络。'
     except FileNotFoundError:
+        result['docker_installed']=False
         result['message'] = '尚未安装 Docker。新服务器可选择安装 Caddy、NPM 或 Nginx，部署前先在运行概览安装 Docker。'
     except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
         result['complete'] = False
         result['message'] = '反代检测未完成，请稍后重新检测或手动填写已确认的网络。'
+    result['recommendation']=recommendation(result)
     return result
 
 
@@ -153,3 +157,63 @@ def ensure_caddy_available(managed_file=None):
         pass
     if ports:
         raise ValueError('端口 %s 已被占用，无法启动新的 Caddy。请选择已有反代方式。' % ' / '.join(map(str, ports)))
+
+HOST_SERVICES = {'nginx':'Nginx','caddy':'Caddy','traefik':'Traefik','haproxy':'HAProxy','apache2':'Apache','httpd':'Apache'}
+
+
+def host_proxies():
+    """Read listener process names; never guess a host proxy from a busy port alone."""
+    try:
+        result=subprocess.run(['ss','-H','-lntp'],capture_output=True,text=True,timeout=5)
+        if result.returncode:return [],False
+        found={}
+        for line in result.stdout.splitlines():
+            parts=line.split()
+            if len(parts)<5:continue
+            match=re.search(r':(\d+)$',parts[3])
+            if not match:continue
+            for process in re.findall(r'\("([^\"]+)",pid=\d+',line):
+                if process not in HOST_SERVICES:continue
+                item=found.setdefault(process,{'id':'host:'+process,'name':process,'kind':HOST_SERVICES[process],
+                    'source':'host','running':True,'networks':[],'ports':[]})
+                port=int(match[1])
+                if port not in item['ports']:item['ports'].append(port)
+        return list(found.values()),True
+    except (OSError,subprocess.SubprocessError):return [],False
+
+
+def recommendation(environment):
+    running=[p for p in environment.get('proxies',[]) if p.get('running')]
+    known=[p for p in running if p.get('kind')!='占用 Web 端口的容器']
+    if len(known)==1 and len(running)==1:
+        proxy=known[0]
+        if proxy.get('source')=='host':return {'state':'existing','mode':'host_ext','target':proxy['id'],'name':proxy['name'],'kind':proxy['kind']}
+        if proxy.get('networks') and environment.get('complete'):
+            return {'state':'existing','mode':'docker_ext','target':proxy['id'],'name':proxy['name'],'kind':proxy['kind']}
+    if len(running)>1:return {'state':'choose','reason':'检测到多个入口服务，请选择要复用的反代。'}
+    if known:return {'state':'choose','reason':'检测到反代，但没有可直接接入的自定义网络。请先配置其网络，再重新检测；也可手动选择接入方式。'}
+    if environment.get('proxies') and not running:return {'state':'choose','reason':'发现尚未运行的反代。请先启动后重新检测，或手动选择新装服务。'}
+    if running:return {'state':'unknown','reason':'发现占用 Web 入口的容器，但未确认其反代类型。请重新检测或手动选择，面板不会自动覆盖入口。'}
+    if environment.get('busy_ports'):return {'state':'unknown','reason':'80 / 443 已有服务占用，但暂未识别出反代类型。请重新检测或手动选择，面板不会自动覆盖入口。'}
+    if environment.get('ports_checked') and (environment.get('complete') and environment.get('available') or environment.get('docker_installed') is False):
+        return {'state':'install','mode':'caddy','reason':'未发现正在使用的反代入口，80 / 443 空闲，可直接安装反代。'}
+    return {'state':'unknown','reason':'暂时无法完整确认服务器环境。请重新检测，或手动指定接入方式。'}
+
+
+def log_sources(environment,memory,configured):
+    all_sources=list(environment.get('proxies',[]))
+    target=memory.get('PANEL_PROXY_TARGET','')
+    kind=memory.get('PANEL_PROXY_KIND')
+    selected=[]
+    if kind in ('npm','nginx'):
+        selected=[p for p in all_sources if p.get('name')=='vw-panel-'+kind]
+    elif target:selected=[p for p in all_sources if p['id']==target]
+    if selected:return selected
+    if configured:
+        mode=memory.get('PROXY_MODE')
+        if mode=='caddy':selected=[p for p in all_sources if p.get('kind')=='Caddy']
+        elif mode=='docker_ext':selected=[p for p in all_sources if p.get('source','docker')=='docker' and memory.get('DOCKER_NET') in p.get('networks',[])]
+        elif mode=='host_ext':selected=[p for p in all_sources if p.get('source')=='host']
+    if selected:return selected
+    # Missing or changed configuration does not justify falling back to a container named caddy.
+    return all_sources

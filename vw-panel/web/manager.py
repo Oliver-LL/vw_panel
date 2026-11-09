@@ -183,7 +183,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         return {'application': self.application_state(), 'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
                 'backup_configured': (backup / 'docker-compose.yml').exists(),
                 'mode': memory.get('PANEL_PROXY_KIND') or memory.get('PROXY_MODE', 'caddy'), 'proxy': self.public_proxy(), 'port': memory.get('EXT_PORT', '8080'),
-                'network': memory.get('DOCKER_NET', 'vaultwarden_net'),
+                'network': memory.get('DOCKER_NET', 'vaultwarden_net'), 'proxy_target':memory.get('PANEL_PROXY_TARGET',''),
                 'core': {key: core.get(key, '') for key in safe_keys},
                 'admin_set': bool(core.get('ADMIN_TOKEN')), 'smtp_password_set': bool(core.get('SMTP_PASSWORD')),
                 'backup': {key: bk.get(key, '') for key in ('CRON', 'BACKUP_KEEP_DAYS', 'TIMEZONE')},
@@ -337,6 +337,16 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 raise ValueError('自动安装的反代使用 HTTPS 443 端口，请填写不带自定义端口的域名。')
             proxy_plan = self.prepare_proxy(mode, Path(directory), p.hostname, network, updates['SERVER_ADMIN_EMAIL'], data, existing=memory.get('PANEL_PROXY_KIND')==mode and memory.get('PANEL_PROXY_DIR')==str(Path(directory)/mode)) if mode in ('npm', 'nginx') else None
             port = number(data.get('port', 8080), '密码库端口', 1024, 65535)
+            target=data.get('PROXY_TARGET','')
+            if not isinstance(target,str) or target and not re.fullmatch(r'(?:[a-f0-9]{12,64}|host:(?:nginx|caddy|traefik|haproxy|apache2|httpd))',target):
+                raise ValueError('所选反代信息无效，请重新检测。')
+            if target:
+                from proxy_environment import detect_environment
+                choices=detect_environment().get('proxies',[])
+                match=next((item for item in choices if item['id']==target and item.get('running')),None)
+                if not match or mode not in ('host_ext','docker_ext') or (mode=='host_ext' and match.get('source')!='host') or (mode=='docker_ext' and network not in match.get('networks',[])):
+                    raise ValueError('所选反代或网络已变化，请重新检测后保存。')
+            memory['PANEL_PROXY_TARGET']=target
             memory.update(VW_DIR=directory, PROXY_MODE='docker_ext' if mode in ('npm', 'nginx') else mode, DOCKER_NET=network, EXT_PORT=str(port),
                           SKIP_CADDY='false' if mode == 'caddy' else 'true')
             service = {'image': 'vaultwarden/server:latest', 'container_name': 'vaultwarden',
@@ -466,7 +476,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             if read_vars(self.memory).get('PANEL_PROXY_KIND') == 'npm':
                 password = self.npm_credentials()['password']
                 if password:raw = raw.replace(password, '[已隐藏]')
-                raw = re.sub(r'(Creating a new user: [^\r\n]* with password: )[^\r\n]*', r'\1[已隐藏]', raw, flags=re.IGNORECASE)
+            raw = re.sub(r'(Creating a new user: [^\r\n]* with password: )[^\r\n]*', r'\1[已隐藏]', raw, flags=re.IGNORECASE)
             with self.mutex:
                 self.logfile.write(raw.encode())
                 self.logfile.flush()

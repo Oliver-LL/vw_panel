@@ -29,9 +29,10 @@ from urllib.parse import urlsplit, parse_qs, quote
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-from manager import Manager
+from manager import Manager, read_vars
 from updater import Updates
-from proxy_environment import detect_environment
+from session_store import SessionStore
+from proxy_environment import detect_environment, log_sources
 
 SCRIPT = ROOT.parent / 'vw_web.sh'
 ACTIONS = {str(i) for i in range(1, 19)}
@@ -173,7 +174,8 @@ class Application:
         self.config_path = self.state_dir / 'panel.json'
         self.config = json.loads(self.config_path.read_text())
         self.terminal = terminal or Terminal(state_dir=self.state_dir)
-        self.sessions = {}
+        self.session_store = SessionStore(self.state_dir, TTL)
+        self.sessions = self.session_store.sessions
         self.attempts = collections.OrderedDict()
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
@@ -212,12 +214,7 @@ class Application:
                 attempts.append(now)
                 return None
             self.attempts.pop(address, None)
-            self.sessions = {k: v for k, v in self.sessions.items() if now - v[1] < TTL}
-            if len(self.sessions) >= 32:
-                del self.sessions[next(iter(self.sessions))]
-            token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            self.sessions[token] = (csrf, now)
-            return token, csrf
+            return self.session_store.create()
 
     def auth(self, cookie):
         try:
@@ -227,11 +224,8 @@ class Application:
         except (KeyError, CookieError):
             return None
         with self.lock:
-            session = self.sessions.get(token)
-            if not session or time.monotonic() - session[1] >= TTL:
-                self.sessions.pop(token, None)
-                return None
-            return token, session[0]
+            csrf = self.session_store.auth(token)
+            return (token, csrf) if csrf else None
 
     def domain(self, origin):
         origin = valid_origin(origin)
@@ -265,7 +259,7 @@ def status():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'VWPanel/0.5'
+    server_version = 'VWPanel/0.6'
 
     @property
     def app(self):
@@ -318,7 +312,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/status':
             return self.reply(200, status())
         if path == '/api/proxy/environment':
-            return self.reply(200, detect_environment())
+            environment=detect_environment()
+            environment['log_sources']=log_sources(environment,read_vars(self.app.manager.memory),(self.app.manager.paths()[0]/'docker-compose.yml').exists())
+            return self.reply(200, environment)
         if path == '/api/settings':
             return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', [])})
         if path == '/api/backups/download':
@@ -437,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('面板正在升级，暂时不能修改配置或执行任务。')
             if path == '/api/logout':
                 with self.app.lock:
-                    self.app.sessions.pop(auth[0], None)
+                    self.app.session_store.revoke(auth[0])
                 return self.reply(200, {'ok': True}, cookie=self.cookie('', 0))
             if path == '/api/proxy/credentials':
                 return self.reply(200, self.app.manager.npm_credentials())

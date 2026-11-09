@@ -194,6 +194,9 @@ class OperationsMixin:
                 raise ValueError('请选择 zip 或 7z 备份。')
         if action == 'restore':
             value=data.get('password','');text(value,'备份密码',1024);payload['password']=value
+        if action == 'proxy-logs' and data.get('proxy_id'):
+            if not isinstance(data['proxy_id'],str) or not re.fullmatch(r'(?:[a-f0-9]{12,64}|host:(?:nginx|caddy|traefik|haproxy|apache2|httpd))',data['proxy_id']):
+                raise ValueError('请选择有效的反代日志来源。')
         if action == 'remove-services':
             if data.get('scope') not in ('core','backup','all') or not isinstance(data.get('delete_data'),bool):
                 raise ValueError('请选择卸载范围与数据处理方式。')
@@ -268,12 +271,31 @@ class OperationsMixin:
                 self.emit('请确认域名 DNS 指向服务器、HTTPS 已签发；端口响应不代表证书有效。')
             return
         if action=='proxy-logs':
+            from proxy_environment import detect_environment, log_sources, HOST_SERVICES
             memory=read_vars(self.memory)
-            name={'npm':'vw-panel-npm','nginx':'vw-panel-nginx'}.get(memory.get('PANEL_PROXY_KIND'), memory.get('EXISTING_CADDY_ID') or 'caddy')
-            self._command(['docker','logs','--tail','150',name])
-            if memory.get('PANEL_PROXY_KIND')=='nginx':
-                try:self._command(['docker','logs','--tail','100','vw-panel-certbot'])
-                except ValueError:self.emit('续期服务尚未就绪，请先完成首次证书申请。')
+            sources=log_sources(detect_environment(),memory,(app/'docker-compose.yml').exists())
+            requested=data.get('proxy_id','')
+            if requested:sources=[p for p in sources if p['id']==requested]
+            if not sources:raise ValueError('未检测到可读取的反代日志。请先部署反代，或重新检测服务器环境。')
+            if len(sources)>1:raise ValueError('检测到多个反代，请在诊断页面选择要查看的服务。')
+            source=sources[0]
+            self.emit('当前日志来源：'+source['name']+'（'+source['kind']+'）')
+            if source.get('source')=='host':
+                name=source['name']
+                if name not in HOST_SERVICES:raise ValueError('不支持的宿主机日志来源。')
+                files={'nginx':['/var/log/nginx/error.log','/var/log/nginx/access.log'],
+                       'apache2':['/var/log/apache2/error.log'],'httpd':['/var/log/httpd/error_log']}.get(name,[])
+                readable=[path for path in files if Path(path).is_file()]
+                if readable:
+                    for path in readable:self._command(['tail','-n','150',path])
+                else:self._command(['journalctl','-u',name,'--no-pager','-n','150'])
+            else:
+                container=source['id']
+                if not re.fullmatch(r'[a-f0-9]{12,64}',container):raise ValueError('反代容器信息无效，请重新检测。')
+                self._command(['docker','logs','--tail','150',container])
+                if source['name']=='vw-panel-nginx':
+                    try:self._command(['docker','logs','--tail','100','vw-panel-certbot'])
+                    except ValueError:self.emit('续期服务尚未就绪，请先完成首次证书申请。')
             return
         if action=='upgrade-backup':
             self._command(self.compose(backup,'pull'))

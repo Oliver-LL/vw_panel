@@ -169,12 +169,13 @@ class HTTPRoutesTests(unittest.TestCase):
         spec.loader.exec_module(panel)
         self.manager.state.mkdir()
         (self.manager.state / 'panel.json').write_text(json.dumps({'port': 8787, 'host': '127.0.0.1', 'origins': []}))
+        (self.manager.state/'credentials.json').write_text(json.dumps({'salt':'fixture','hash':'fixture'}))
         app = panel.Application(self.manager.state)
         app.manager = self.manager
         server = panel.ThreadingHTTPServer(('127.0.0.1', 0), panel.Handler)
         port = server.server_port
         app.config['port'] = port
-        app.sessions['fixture'] = ('csrf-fixture', time.monotonic())
+        app.sessions[app.session_store.key('fixture')] = ('csrf-fixture', time.time())
         server.app = app
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
