@@ -87,3 +87,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.6.7 日志操作整理
 
 日志控件集中在任务卡片内。选择服务后点击“查看日志”，可开启每 5 秒自动刷新；日志结果自动展开。
+
+## 0.6.8 推送凭据按需显示
+
+启用官方推送后才显示 Installation ID、Installation Key 和获取说明，可点击链接前往 Bitwarden 官方申请页面。关闭开关不会清空未保存输入，保存关闭时仍按原逻辑移除配置。

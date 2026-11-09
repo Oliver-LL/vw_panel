@@ -430,6 +430,9 @@ function applyPresentation(bar,scope,row){
     button.onclick=needsToken?()=>{revealGroup($('token-form'));$('token-form').elements.password.focus()}:()=>startTask(action);
 }
 function renderPresentation(){
+    const pushEnabled=$('push-form').elements.enabled.checked;
+    $('push-credentials').hidden=!pushEnabled;
+    $('push-form').elements.enabled.setAttribute('aria-expanded',String(pushEnabled));
     if(!cfg||!environment)return;
     const core=environment.containers.find(row=>row.Names==='vaultwarden');const backup=environment.containers.find(row=>row.Names==='vaultwarden-backup');
     const active=core?.State==='running',backupActive=backup?.State==='running';
