@@ -400,7 +400,7 @@ function setupPresentation(){
     const backupBar=document.createElement('div');backupBar.className='apply-bar';backupBar.dataset.applyScope='backup';backupBar.hidden=true;
     const copy=document.createElement('div');copy.append(document.createElement('strong'),document.createElement('p'));
     const button=document.createElement('button');button.className='primary';button.dataset.task='backup-start';button.onclick=()=>startTask('backup-start');backupBar.append(copy,button);
-    $('backup-form').after(backupBar);
+    $('backup-service-guidance').append(backupBar);
     const pending=document.createElement('div');pending.id='pending-overview';pending.className='callout';pending.hidden=true;
     const text=document.createElement('div');const title=document.createElement('strong');title.textContent='有已保存的配置等待应用';const description=document.createElement('p');description.id='pending-overview-detail';text.append(title,description);
     const links=document.createElement('div');links.className='button-row';for(const [scope,view,label]of [['core','vault','查看密码库配置'],['backup','backup','查看备份配置']]){const a=document.createElement('a');a.className='secondary';a.href='#'+view;a.dataset.pendingScope=scope;a.textContent=label;links.append(a)}pending.append(text,links);viewElement('overview','.setup-card').after(pending);
@@ -462,6 +462,18 @@ function renderPresentation(){
     const backupGroup=$('backup-form').querySelector('.config-group .card-heading p');if(backupGroup)backupGroup.textContent=cfg.backup_configured?'管理备份频率、保留策略与加密密码；已有远程目标保持不变。':'新建备份计划默认保存到本机，也可以添加远程目标。';
     $('backup-form').querySelector('.form-footer>span').textContent=hasUnsaved('backup')?'修改尚未保存':backupPending?'计划已保存，等待应用到备份服务':cfg.backup_configured?'修改计划后保存，再应用备份配置':'先填写备份计划与加密密码';
     for(const button of document.querySelectorAll('[data-task="backup-start"]'))if(!button.closest('[data-apply-scope]'))button.textContent=backupPending?'应用备份配置':backupActive?'重新应用备份配置':'启用备份服务';
+    const backupUnknown=!environment.available||environment.unknown;
+    $('backup-service-status').textContent=backupUnknown?'状态未知':backupActive?'运行中':backup?'已暂停':cfg.backup_configured?'待启用':'未配置';
+    $('backup-service-status').classList.toggle('is-running',!!backupActive&&!backupUnknown);
+    $('backup-service-description').textContent=backupUnknown?'暂时无法确认服务状态，请刷新后重试。':backupActive?'按已保存的计划自动备份，也可以立即创建一份。':backup?'自动备份已暂停，已有配置和备份文件保留。':cfg.backup_configured?'备份计划已保存，启用后开始自动执行。':'先填写并保存下方备份计划，再启用服务。';
+    const backupStart=$('backup-service-start');
+    backupStart.hidden=!document.querySelector('[data-apply-scope="backup"]').hidden;
+    backupStart.disabled=taskRunning||backupUnknown||!cfg.backup_configured||hasUnsaved('backup');
+    backupStart.className=backupActive?'secondary':'primary';
+    const backupNow=$('backup-service').querySelector('[data-task="backup-now"]');backupNow.className=backupActive?'primary':'secondary';backupNow.hidden=!backup;
+    $('backup-service').querySelector('.backup-maintenance').hidden=!backup;
+    $('backup-service').querySelector('[data-task="upgrade-backup"]').disabled=taskRunning||backupUnknown||!backup;
+
     for(const button of document.querySelectorAll('[data-task="backup-stop"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'暂停计划任务，保留备份文件':'备份服务当前未运行'}
     for(const button of document.querySelectorAll('[data-task="backup-now"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'执行一次备份':'请先启动备份服务';const caption=button.querySelector('small');if(caption)caption.textContent=backupActive?'立即生成一份加密备份':'启动备份服务后可手动执行'}
     for(const button of document.querySelectorAll('[data-task="stop"]'))button.disabled=taskRunning||!active;

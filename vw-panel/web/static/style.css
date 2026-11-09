@@ -65,3 +65,20 @@ main{max-width:none;margin:0;padding:30px 32px 24px}.page-title{margin-bottom:23
 .permission-settings[open] .permission-toggle:after{content:'收起 ⌃'}
 .permission-body{padding-top:12px}
 @media(max-width:760px){.group-body .form-footer{align-items:stretch}.group-body .form-footer>span{flex-basis:100%}.group-body .form-footer>button[type=submit]{width:100%}.form-actions{width:100%}.form-actions>button[type=submit]{flex:1}.permission-settings summary small{max-width:250px}}
+
+/* Keep backup operations together, separate from configuration groups. */
+.backup-service{margin-bottom:20px;padding:22px 25px}
+.backup-service-main,.backup-service-heading,.backup-service-actions{display:flex;align-items:center;gap:12px}
+.backup-service-main{justify-content:space-between;gap:20px}
+.backup-service-copy{min-width:0}.backup-service-heading{flex-wrap:wrap}.backup-service-heading h2{margin:0}
+.backup-service-copy>p{margin:9px 0 0;font-size:12px;line-height:1.7}
+.backup-service-actions{flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+.backup-service .is-running{background:#eaf7f1;color:#338e71}
+.backup-service .apply-bar{margin:18px 0 0}
+.backup-maintenance{border-top:1px solid #eeedf5;margin-top:18px;padding-top:14px}
+.backup-maintenance>summary{display:flex;align-items:center;gap:9px;width:fit-content;cursor:pointer;list-style:none;color:#89829e;font-size:12px}
+.backup-maintenance>summary::-webkit-details-marker{display:none}
+.backup-maintenance[open]>summary>span{transform:rotate(180deg)}
+.backup-maintenance-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:14px}
+.backup-maintenance-actions>.muted{font-size:11px}
+@media(max-width:760px){.backup-service{padding:20px}.backup-service-main{align-items:stretch;flex-direction:column;gap:16px}.backup-service-actions{justify-content:flex-start}.backup-service-actions>button{flex:1}.backup-maintenance-actions>.muted{flex-basis:100%}.backup-service .apply-bar{align-items:stretch;flex-direction:column}}
