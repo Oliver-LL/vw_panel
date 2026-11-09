@@ -114,9 +114,9 @@ class ExistingNPMTests(unittest.TestCase):
             with patch.object(adapter,'_npm_api_base',return_value='http://127.0.0.1:%s/api/'%server.server_port):
                 adapter.configure()
                 cert=next(data for path,data,auth in seen if path=='/api/nginx/certificates' and data)
-                self.assertEqual(cert['meta']['letsencrypt_email'],self.data['email'])
-                self.assertTrue(cert['meta']['letsencrypt_agree'])
-                self.assertTrue(all(auth=='Bearer private-token' for path,data,auth in seen if path!='/api/tokens'))
+                self.assertNotIn('letsencrypt_email',cert['meta'])
+                self.assertNotIn('letsencrypt_agree',cert['meta'])
+                self.assertTrue(all(auth=='Bearer private-token' for path,data,auth in seen if path not in ('/api/tokens','/api/')))
                 redirect[0]=True;seen.clear()
                 with self.assertRaises(ValueError):adapter._npm_request('tokens',{'identity':self.data['email'],'secret':'RedirectSecret!'})
                 self.assertEqual([path for path,data,auth in seen],['/api/tokens'])

@@ -4,7 +4,7 @@ import json
 import re
 from urllib.parse import urlsplit
 from pathlib import Path
-from managed_proxy import ManagedProxyMixin
+from managed_proxy import ManagedProxyMixin, NPMAPIError
 
 class ExistingNPM(ManagedProxyMixin):
     def __init__(self, manager, data):
@@ -49,15 +49,38 @@ class ExistingNPM(ManagedProxyMixin):
     def _npm_api_base(self):return self.base
     def emit(self,message):self.manager.emit(message)
     def _npm_token(self):
+        if not getattr(self,'_version_checked',False):
+            self._version_checked=True;self._legacy_certificate=False
+            try:info=self._npm_request('')
+            except NPMAPIError as error:
+                if error.status!=404:raise
+                info={}
+            version=info.get('version',{}) if isinstance(info,dict) else {}
+            if isinstance(version,dict) and all(isinstance(version.get(key),int) and not isinstance(version.get(key),bool) for key in ('major','minor')):
+                self._legacy_certificate=(version['major'],version['minor'])<(2,14)
+                self.emit('检测到 NPM %s.%s，已选择对应证书参数。'%(version['major'],version['minor']))
+        self.emit('正在使用现有 NPM 账号登录…')
         result=self._npm_request('tokens',{'identity':self.email,'secret':self.password})
         if not isinstance(result,dict) or not isinstance(result.get('token'),str) or not result['token']:
-            raise ValueError('NPM 登录失败，请检查管理邮箱、密码及账号权限。')
+            raise ValueError('NPM 登录未返回有效授权，请检查 NPM 账号与接口版本。')
         return result['token']
 
     def _npm_request(self,path,data=None,token=None,method=None,timeout=15):
-        if path=='nginx/certificates' and data is not None:
-            data={**data,'meta':{**data.get('meta',{}),'letsencrypt_email':self.email,'letsencrypt_agree':True}}
-        return super()._npm_request(path,data,token,method,timeout)
+        if path!='nginx/certificates' or data is None:return super()._npm_request(path,data,token,method,timeout)
+        def payload(legacy):
+            result={**data,'meta':dict(data.get('meta',{}))}
+            result['meta'].pop('letsencrypt_email',None);result['meta'].pop('letsencrypt_agree',None)
+            if legacy:result['meta'].update(letsencrypt_email=self.email,letsencrypt_agree=True)
+            return result
+        legacy=getattr(self,'_legacy_certificate',False)
+        try:return super()._npm_request(path,payload(legacy),token,method,timeout)
+        except NPMAPIError as error:
+            # Retry once only for an explicit schema rejection, never an ACME/network failure.
+            if (legacy and error.compat=='legacy-rejected') or (not legacy and error.compat=='legacy-required'):
+                self.emit('NPM 证书接口参数有差异，按接口校验结果切换一次兼容格式。')
+                self._legacy_certificate=not legacy
+                return super()._npm_request(path,payload(not legacy),token,method,timeout)
+            raise
 
     def configure(self):
         state=self.folder/'route-state.json'

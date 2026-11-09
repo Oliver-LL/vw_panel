@@ -98,6 +98,24 @@ def ensure_proxy_ports(kind, folder, admin_port=None):
     if occupied:raise ValueError('端口 %s 已被占用，请使用已有反代或调整管理端口。' % ' / '.join(map(str, sorted(occupied))))
 
 
+class NPMAPIError(ValueError):
+    """Safe stage and HTTP diagnostics; never expose upstream response bodies."""
+    def __init__(self,path,method,status=None,reason='http',compat='',hint=''):
+        self.status=status;self.path=path;self.compat=compat
+        stage='登录 NPM' if path=='tokens' else '读取 NPM 版本' if not path else '申请 HTTPS 证书' if path=='nginx/certificates' and method=='POST' else '读取证书列表' if path=='nginx/certificates' else '写入代理站点' if method in ('POST','PUT') else '读取代理站点'
+        detail='（HTTP %s）'%status if status else ''
+        if reason=='connect':message=stage+'失败：无法连接 NPM 管理接口，请检查容器状态和 81 端口。'
+        elif reason=='timeout':message=stage+'超时，请先检查 NPM 日志及证书列表，确认是否已完成后再重试，避免重复申请。'
+        elif reason=='json':message=stage+'失败：NPM 返回的不是有效 JSON，请检查管理接口与版本。'
+        elif status in (301,302,303,307,308):message=stage+'失败：管理接口发生重定向，已停止请求，请检查 NPM 接口地址。'
+        elif status in (401,403) and path=='tokens':message='NPM 登录未通过'+detail+'，请使用现有 NPM 的登录邮箱和当前密码；无需在面板新建账号。'
+        elif status==401:message=stage+'失败'+detail+'：NPM 授权已失效，请重新登录。'
+        elif status==403:message=stage+'失败'+detail+'：NPM 账号没有此操作权限。'
+        elif path=='nginx/certificates' and method=='POST':message='NPM 登录已通过，但申请 HTTPS 证书失败'+detail+'。'+(hint or '请检查域名解析、80 / 443 与 NPM 的证书日志。')
+        else:message=stage+'失败'+detail+'。'+(hint or '请检查 NPM 日志与接口版本。')
+        super().__init__(message)
+
+
 class ManagedProxyMixin:
     def proxy_folder(self, memory=None):
         from manager import read_vars
@@ -198,13 +216,34 @@ class ManagedProxyMixin:
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):return None
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        verb=method or ('POST' if data is not None else 'GET')
         try:
             with opener.open(request, timeout=timeout) as response:
                 raw = response.read(2*1024*1024+1)
-                if len(raw)>2*1024*1024:raise ValueError('NPM 返回内容过大。')
-                return json.loads(raw)
-        except (OSError, ValueError):
-            raise ValueError('NPM 请求未完成。请确认管理账号正确；申请证书时请检查 DNS 与 80 / 443 端口后重试。') from None
+        except urllib.error.HTTPError as error:
+            # Classify a bounded response in memory, without putting it in the error/log.
+            try:
+                body=error.read(32768).decode('utf-8','replace').lower()
+            except OSError:body=''
+            finally:error.close()
+            compat='';hint=''
+            if path=='nginx/certificates' and verb=='POST':
+                if error.code==400 and ('additional propert' in body or 'additionalproperties' in body):compat='legacy-rejected';hint='NPM 不接受旧版证书参数。'
+                elif error.code==400 and any(key in body for key in ('letsencrypt_email','letsencrypt_agree')) and any(word in body for word in ('required property','required field','is required')):compat='legacy-required';hint='此 NPM 版本要求旧版证书参数。'
+                elif any(word in body for word in ('ratelimit','rate limit','too many certificates')):hint='证书机构已限制申请频率，请稍后重试。'
+                elif any(word in body for word in ('nxdomain','dns problem','no valid ip')):hint='域名 DNS 解析未通过，请检查该域名的 A / AAAA 记录。'
+                elif any(word in body for word in ('unauthorized','challenge failed','invalid response')):hint='证书域名验证未通过，请检查域名解析及 80 端口是否到达此 NPM。'
+                elif any(word in body for word in ('timed out','timeout','connection refused')):hint='证书验证连接失败，请检查 NPM 的网络和公网 80 / 443。'
+            raise NPMAPIError(path,verb,error.code,compat=compat,hint=hint) from None
+        except urllib.error.URLError as error:
+            raise NPMAPIError(path,verb,reason='timeout' if isinstance(error.reason,TimeoutError) else 'connect') from None
+        except TimeoutError:
+            raise NPMAPIError(path,verb,reason='timeout') from None
+        except OSError:
+            raise NPMAPIError(path,verb,reason='connect') from None
+        if len(raw)>2*1024*1024:raise NPMAPIError(path,verb,reason='json')
+        try:return json.loads(raw)
+        except (ValueError,UnicodeDecodeError):raise NPMAPIError(path,verb,reason='json') from None
 
     def _npm_token(self):
         credentials = self.npm_credentials()
@@ -223,8 +262,9 @@ class ManagedProxyMixin:
     def configure_npm(self):
         from manager import write_private
         folder = self.proxy_folder();settings = self.proxy_settings();domain = settings['domain']
-        self.emit('正在等待 NPM 初始化并配置密码库 HTTPS…')
+        self.emit('正在连接 NPM 并配置密码库 HTTPS…')
         token = self._npm_token()
+        self.emit('NPM 登录已通过，正在读取站点与证书。')
         state_path = folder/'route-state.json'
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
         hosts = self._npm_request('nginx/proxy-hosts', token=token)

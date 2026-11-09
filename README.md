@@ -131,3 +131,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.7.8 统一操作弹窗
 
 更新、卸载、停止、存储配置与高级操作均使用统一的页面弹窗。支持键盘与取消，危险操作单独配色，不再弹出浏览器原生确认框或输入框。
+
+## 0.7.9 现有 NPM 证书兼容
+
+直接使用现有 NPM 管理员账号。证书参数按 NPM 版本选择，失败提示区分登录、连接、权限和证书验证阶段；申请失败不会反复重试证书。新版本接口参考：[NPM 证书参数](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.16.0/backend/schema/components/certificate-object.json)。
