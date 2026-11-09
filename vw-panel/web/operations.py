@@ -311,8 +311,18 @@ class OperationsMixin:
                 message=re.sub(r'(?i)(could not parse line:).*',r'\1 [已隐藏]',message)
                 message=re.sub(r'\x1b\[[0-9;]*m','',message)
                 lines=[line.strip() for line in message.splitlines() if line.strip()]
-                detail=' '.join(lines[-5:])[-700:]
-                raise ValueError(label+' 连接验证失败：'+(detail or 'rclone 未返回错误详情。')+((' '+hint) if hint else ''))
+                if self.logfile:self.emit(label+' 连接验证详情：\n'+'\n'.join(lines))
+                if 'SignatureDoesNotMatch' in message:
+                    summary='签名校验失败（403 SignatureDoesNotMatch）。请重新填写配对的 Access Key ID 和原始 Secret Access Key，不要填写 API Token 字符串。'
+                elif 'InvalidAccessKeyId' in message:
+                    summary='Access Key ID 无效，请检查账号和这组访问密钥是否已被撤销。'
+                elif 'AccessDenied' in message:
+                    summary='访问被拒绝（403 AccessDenied），请检查目标 Bucket 和这组密钥的对象读写权限。'
+                elif 'NoSuchBucket' in message:
+                    summary='找不到 Bucket，请确认桶名、所属账号和 Endpoint。'
+                else:
+                    summary='连接验证失败，请查看失败详情。'+((' '+hint) if hint else '')
+                raise ValueError(label+' '+summary)
             return output.read().decode('utf-8','replace')
 
     def run_extended(self,action,data):
@@ -461,7 +471,10 @@ class OperationsMixin:
         for field in preset['fields']:
             if not field.get('secret'):continue
             key=field['key'];option=field.get('option',key);value=values.get(key,'')
-            if value:
+            if value and not field.get('obscure',False):
+                # S3 signs with the original key; Sensitive does not mean IsPassword.
+                obscured[key]=value;secrets.append(value)
+            elif value:
                 try:
                     secret=self._command(['docker','run','--rm','-i','ttionya/vaultwarden-backup:latest',
                         'rclone','obscure','-'],value+'\n',secret=True).strip()

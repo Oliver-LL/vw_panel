@@ -30,7 +30,7 @@ PRESETS = {
     'r2': {
         'label': 'Cloudflare R2',
         'type': 's3',
-        'description': '填写 R2 API Token 与 Bucket，保存前用只读列表验证；Token 需具备 Object Read & Write 权限。',
+        'description': '填写 R2 的 Access Key ID、Secret Access Key 与 Bucket，保存前只读验证；访问密钥需具备 Object Read & Write 权限。',
         'requires_provider': 'Cloudflare',
         'fields': [
             _field('account_id', 'Account ID', config=False, maxlength=32, placeholder='32 位 Account ID',
@@ -44,7 +44,7 @@ PRESETS = {
                    pattern=r'[A-Za-z0-9]{8,128}', pattern_message='Access Key ID 格式不正确。',
                    help='R2 API Token 的 Access Key ID；已有配置可留空保留。'),
             _field('secret_access_key', 'Secret Access Key', type='password', secret=True, reuse_blank=True,
-                   help='R2 API Token 的 Secret；留空保留已保存的密钥。'),
+                   help='填写与 Access Key ID 配对的原始 Secret Access Key，不是 API Token 字符串。旧版连接失败时请重新填写，留空只保留原值。'),
             _field('bucket', 'Bucket', config=False, required=True, maxlength=63, pattern=BUCKET_PATTERN,
                    pattern_message='Bucket 名称需为 3～63 位小写字母、数字或短横线，并以字母或数字开头和结尾。',
                    help=BUCKET_HELP + '需先在 Cloudflare 创建。'),
@@ -99,7 +99,7 @@ PRESETS = {
                    allow_custom=True, pattern=r'[A-Za-z0-9-]{1,64}',
                    help='按服务商选择；不确定时选通用 WebDAV。'),
             _field('user', '用户名', required=True, maxlength=256, help='通常是邮箱或独立的 WebDAV 账号。'),
-            _field('pass', '应用密码 / 授权码', type='password', secret=True, reuse_blank=True,
+            _field('pass', '应用密码 / 授权码', type='password', secret=True, obscure=True, reuse_blank=True,
                    help='留空保留已保存的密码。'),
             _field('directory', '保存目录', config=False, default='/VaultBackup', maxlength=512,
                    help='远程目录；保存时会在远端创建。'),
@@ -116,7 +116,7 @@ PRESETS = {
             _field('host', '服务器地址', required=True, maxlength=256, placeholder='sftp.example.com'),
             _field('port', '端口', type='number', default=22, min=1, max=65535),
             _field('user', '用户名', required=True, maxlength=256),
-            _field('pass', '密码', type='password', secret=True, reuse_blank=True,
+            _field('pass', '密码', type='password', secret=True, obscure=True, reuse_blank=True,
                    help='留空保留已保存的密码。'),
             _field('directory', '保存目录', config=False, default='/VaultBackup', maxlength=512),
         ],
@@ -132,7 +132,7 @@ PRESETS = {
             _field('host', '服务器地址', required=True, maxlength=256, placeholder='ftp.example.com'),
             _field('port', '端口', type='number', default=21, min=1, max=65535),
             _field('user', '用户名', required=True, maxlength=256),
-            _field('pass', '密码', type='password', secret=True, reuse_blank=True),
+            _field('pass', '密码', type='password', secret=True, obscure=True, reuse_blank=True),
             _field('tls', '使用隐式 TLS（FTPS）', type='checkbox', default=False,
                    help='显式 FTPS 请使用 Rclone 向导。'),
             _field('directory', '保存目录', config=False, default='/VaultBackup', maxlength=512),
@@ -212,6 +212,9 @@ def normalize(preset_id, data):
                 raise ValueError(field['label'] + '不能为空。')
             values[key] = raw
     if preset_id in ('r2', 's3'):
+        secret=values.get('secret_access_key','')
+        if secret and secret!=secret.strip():
+            raise ValueError('Secret Access Key 前后不能带空格，请重新复制原始密钥。')
         values['bucket'] = values['bucket'].lower()
         if preset_id == 'r2':
             values['account_id'] = values['account_id'].lower()

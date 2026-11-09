@@ -142,10 +142,7 @@ class OperationsTests(unittest.TestCase):
         config=backup/'vw-backup-config/rclone/rclone.conf'
         probed=[]
         def command(args,input_text=None,secret=False):
-            if 'obscure' in args:
-                self.assertEqual(input_text,'R2Secret!123\n')
-                return 'obscured-r2-secret\n'
-            raise AssertionError(args)
+            raise AssertionError('S3/R2 keys must never be obscured: '+str(args))
         def probe(args,config_file,secrets=(),label='',hint=''):
             probed.append((list(args),Path(config_file).read_text(),tuple(secrets)))
             return ''
@@ -159,13 +156,13 @@ class OperationsTests(unittest.TestCase):
         self.assertIn('[BitwardenBackup]',written)
         self.assertIn('provider = Cloudflare',written)
         self.assertIn('access_key_id = AKIAEXAMPLE123456',written)
-        self.assertIn('secret_access_key = obscured-r2-secret',written)
+        self.assertIn('secret_access_key = R2Secret!123',written)
         self.assertIn('endpoint = https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',written)
         self.assertIn('no_check_bucket = true',written)
         # The subpath is created by the first backup, so verification uses the bucket root.
         self.assertEqual(probed[0][0],['lsf','R2Backup:vw-backup','--max-depth','1'])
         self.assertIn('[R2Backup]',probed[0][1])
-        self.assertIn('obscured-r2-secret',probed[0][2])
+        self.assertIn('R2Secret!123',probed[0][2])
         env=read_vars(backup/'backup.env')
         self.assertEqual(env['RCLONE_REMOTE_NAME'],'BitwardenBackup')
         self.assertEqual(env['RCLONE_REMOTE_NAME_1'],'R2Backup')
@@ -193,7 +190,7 @@ class OperationsTests(unittest.TestCase):
         with patch.object(self.manager,'_command',return_value='unused\n'),patch.object(self.manager,'rclone_probe',return_value=''):
             self.manager.start('remote-preset-save',dict(data,secret_access_key=''))
             self.assertEqual(self.wait_job()['state'],'success')
-        self.assertIn('secret_access_key = obscured-one',config.read_text())
+        self.assertIn('secret_access_key = FirstSecret!',config.read_text())
 
     def test_r2_remote_saves_selected_jurisdiction(self):
         self.backup()
@@ -307,12 +304,33 @@ class OperationsTests(unittest.TestCase):
             if 'obscure' in args:
                 seen.append(input_text);return 'obscured-space\n'
             raise AssertionError(args)
-        data=dict(preset='r2',name='SpaceSecret',account_id='0'*32,access_key_id='ACCESSKEY12345678',
-            secret_access_key=' spaced secret ',bucket='vw-backup',path='',no_check_bucket=False,set_target=False)
+        data=dict(preset='webdav',name='SpaceSecret',url='https://dav.example.com/',vendor='other',user='user',
+            directory='/VaultBackup',set_target=False,**{'pass':' spaced secret '})
         with patch.object(self.manager,'_command',side_effect=command),patch.object(self.manager,'rclone_probe',return_value=''):
             self.manager.start('remote-preset-save',data)
             self.assertEqual(self.wait_job()['state'],'success')
         self.assertEqual(seen,[' spaced secret \n'])
+
+    def test_r2_signature_error_is_short_and_details_redacted(self):
+        self.backup()
+        trial=self.manager.state/'signature-test.conf';trial.write_text('[R2]\ntype = s3\n')
+        secret='PrivateFixtureKey'
+        self.manager.logfile=tempfile.TemporaryFile()
+        def fake_run(args,stdout=None,stderr=None,timeout=None):
+            stderr.write(('ERROR: 403 SignatureDoesNotMatch secret_access_key='+secret+'\n'*2).encode())
+            return SimpleNamespace(returncode=1)
+        with patch('operations.subprocess.run',side_effect=fake_run),self.assertRaises(ValueError) as caught:
+            self.manager.rclone_probe(['lsf','R2:bucket'],trial,secrets=(secret,),label='Cloudflare R2')
+        message=str(caught.exception)
+        self.assertIn('SignatureDoesNotMatch',message);self.assertLess(len(message),180);self.assertNotIn('ERROR:',message)
+        self.manager.logfile.seek(0);detail=self.manager.logfile.read().decode()
+        self.assertIn('SignatureDoesNotMatch',detail);self.assertNotIn(secret,detail)
+
+    def test_r2_rejects_accidental_secret_whitespace(self):
+        self.backup()
+        data=dict(preset='r2',name='R2Backup',account_id='0'*32,access_key_id='ACCESSKEY12345678',
+            secret_access_key=' secret ',bucket='vw-backup',path='',no_check_bucket=True,set_target=False)
+        with self.assertRaisesRegex(ValueError,'空格'):self.manager.start('remote-preset-save',data)
 
     def test_preset_webdav_and_s3_reject_credentials_in_urls(self):
         self.backup()
@@ -368,7 +386,7 @@ class OperationsTests(unittest.TestCase):
         self.assertIn('provider = Minio',written)
         self.assertIn('endpoint = https://minio.example.com',written)
         self.assertIn('region = us-east-1',written)
-        self.assertIn('secret_access_key = obscured-minio',written)
+        self.assertIn('secret_access_key = MinioSecret!',written)
         # The subpath is created by the first backup, so verification uses the bucket root.
         self.assertEqual(probed[0][0],['lsf','MinioCloud:vw-backup','--max-depth','1'])
         self.assertEqual(probed[0][1],'S3 兼容对象存储')
