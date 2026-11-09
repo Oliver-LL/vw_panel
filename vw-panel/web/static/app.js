@@ -2,6 +2,7 @@
 const $=id=>document.getElementById(id);
 const names={overview:'运行概览',vault:'密码库配置',mail:'邮件服务',backup:'备份与保护',tasks:'任务与日志',settings:'面板设置',remote:'远程存储',restore:'备份与恢复',diagnostics:'诊断与状态',cleanup:'卸载与清理'};
 let lastStatus=0;
+let proxyEnvironment=null,proxyDetectionLoading=false,proxyDetectionSequence=0,proxyNetworkEdited=false,proxyManualNetwork='';
 let csrf='', timer=null, refreshing=false, taskRunning=false, currentTask='', finishedTask='', cfg=null;
 let cursor=0,generation='',raw='',consoleRunning=false,hiddenInput=false;
 const dirty=new Set();
@@ -14,7 +15,8 @@ function invalidateAuth(phase){
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
-    refreshing=false;checkingUpdates=false;lastSubmittedForm=null;
+    refreshing=false;checkingUpdates=false;lastSubmittedForm=null;proxyEnvironment=null;proxyDetectionLoading=false;proxyDetectionSequence++;proxyNetworkEdited=false;proxyManualNetwork='';
+    $('npm-credentials').hidden=true;$('npm-login-password').value='';$('npm-login-password').type='password';$('npm-login-email').value='';$('show-npm-credentials').textContent='查看 NPM 管理账号';
     return authEpoch;
 }
 async function sessionRequest(url,options={}){
@@ -111,10 +113,99 @@ $('logout').onclick=async()=>{try{await api('logout',{});showLogin()}catch(error
 for(const id of ['core-form','mail-form','backup-form','remote-form','advanced-form','push-form','notifications-form','targets-form']){$(id).addEventListener('input',()=>dirty.add(id));$(id).addEventListener('change',()=>dirty.add(id))}
 function fill(id,values){if(dirty.has(id))return;const form=$(id);for(const [key,value]of Object.entries(values)){const field=form.elements.namedItem(key);if(!field)continue;if(field.type==='checkbox')field.checked=value===true||value==='true';else{if(field.tagName==='SELECT'&&value&&!Array.from(field.options).some(o=>o.value===value)){field.add(new Option('当前设置：'+value,value))}field.value=value}}}
 function formatSize(bytes){return bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':(bytes/1024).toFixed(1)+' KB'}
-async function loadConfig(){try{cfg=await api('config');const defaults={SIGNUPS_ALLOWED:!cfg.configured,INVITATIONS_ALLOWED:true,SENDS_ALLOWED:false};for(const key of Object.keys(defaults)){if(cfg.core[key]!=='')defaults[key]=cfg.core[key]}fill('core-form',{...cfg.core,...defaults,directory:cfg.directory,mode:cfg.mode,port:cfg.port,network:cfg.network});fill('mail-form',{SMTP_PORT:'587',SMTP_SECURITY:'starttls',...Object.fromEntries(Object.entries(cfg.core).filter(([,v])=>v!==''))});fill('backup-form',{CRON:'0 3 * * *',BACKUP_KEEP_DAYS:'30',TIMEZONE:'Asia/Shanghai',...Object.fromEntries(Object.entries(cfg.backup).filter(([,v])=>v!==''))});$('admin-badge').textContent=cfg.admin_set?'已设置 · 留空保留':'尚未设置';$('admin-badge').className='badge'+(cfg.admin_set?' success':'');for(const field of $('core-form').elements){if(['directory','mode','port','network'].includes(field.name))field.disabled=cfg.configured}$('topology-note').hidden=!cfg.configured;const smtp=$('mail-form').elements.SMTP_PASSWORD;smtp.placeholder=cfg.smtp_password_set?'已保存 · 留空保留原值':'填写邮箱授权码';$('backup-form').elements.ZIP_PASSWORD.placeholder=cfg.zip_password_set?'已保存 · 留空保留原值':'首次配置请设置加密密码';$('step-config').classList.toggle('done',cfg.configured);$('step-config').querySelector('b').textContent=cfg.configured?'已保存':'待配置';$('step-token').classList.toggle('done',cfg.admin_set);$('step-token').querySelector('b').textContent=cfg.admin_set?'已保护':'待设置';const url=cfg.core.DOMAIN;$('vault-url').textContent=url||'完成配置后显示';$('open-vault').hidden=!url;if(url&&/^https:\/\//.test(url))$('open-vault').href=url;if(cfg.remote){const remote=cfg.remote;const webdav=remote.type==='webdav';$('remote-current').textContent=remote.type==='local'?'当前目标：本机加密备份。连接 WebDAV 后，新的备份将发送到远程目录。':remote.name?'当前目标：'+remote.name+' · '+remote.directory:'尚未连接远程存储。请先保存备份计划，再连接 WebDAV。';if(webdav)fill('remote-form',{url:remote.url,user:remote.user,directory:remote.directory})}renderFiles(cfg.files);renderExtras(cfg);routeHelp();updateGroupSummaries();renderPresentation()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
+async function loadConfig(){try{cfg=await api('config');const defaults={SIGNUPS_ALLOWED:!cfg.configured,INVITATIONS_ALLOWED:true,SENDS_ALLOWED:false};for(const key of Object.keys(defaults)){if(cfg.core[key]!=='')defaults[key]=cfg.core[key]}fill('core-form',{...cfg.core,...defaults,directory:cfg.directory,mode:cfg.mode,port:cfg.port,network:cfg.network});fill('mail-form',{SMTP_PORT:'587',SMTP_SECURITY:'starttls',...Object.fromEntries(Object.entries(cfg.core).filter(([,v])=>v!==''))});fill('backup-form',{CRON:'0 3 * * *',BACKUP_KEEP_DAYS:'30',TIMEZONE:'Asia/Shanghai',...Object.fromEntries(Object.entries(cfg.backup).filter(([,v])=>v!==''))});$('admin-badge').textContent=cfg.admin_set?'已设置 · 留空保留':'尚未设置';$('admin-badge').className='badge'+(cfg.admin_set?' success':'');for(const field of $('core-form').elements){if(['directory','mode','port','network'].includes(field.name))field.disabled=cfg.configured}$('topology-note').hidden=!cfg.configured;const smtp=$('mail-form').elements.SMTP_PASSWORD;smtp.placeholder=cfg.smtp_password_set?'已保存 · 留空保留原值':'填写邮箱授权码';$('backup-form').elements.ZIP_PASSWORD.placeholder=cfg.zip_password_set?'已保存 · 留空保留原值':'首次配置请设置加密密码';$('step-config').classList.toggle('done',cfg.configured);$('step-config').querySelector('b').textContent=cfg.configured?'已保存':'待配置';$('step-token').classList.toggle('done',cfg.admin_set);$('step-token').querySelector('b').textContent=cfg.admin_set?'已保护':'待设置';const url=cfg.core.DOMAIN;$('vault-url').textContent=url||'完成配置后显示';$('open-vault').hidden=!url;if(url&&/^https:\/\//.test(url))$('open-vault').href=url;if(cfg.remote){const remote=cfg.remote;const webdav=remote.type==='webdav';$('remote-current').textContent=remote.type==='local'?'当前目标：本机加密备份。连接 WebDAV 后，新的备份将发送到远程目录。':remote.name?'当前目标：'+remote.name+' · '+remote.directory:'尚未连接远程存储。请先保存备份计划，再连接 WebDAV。';if(webdav)fill('remote-form',{url:remote.url,user:remote.user,directory:remote.directory})}renderFiles(cfg.files);renderExtras(cfg);routeHelp();updateGroupSummaries();renderPresentation();if(!cfg.configured&&!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
 function renderFiles(files){const box=$('backup-files');box.replaceChildren();if(!files.length){const empty=document.createElement('div');empty.className='empty';const title=document.createElement('strong');title.textContent='还没有本机备份';empty.append(title,document.createTextNode('保存备份计划并启用后，点击“立即备份”创建第一份。'));box.append(empty)}for(const file of files){const row=document.createElement('div');row.className='file-row';for(const [i,value]of [file.name,formatSize(file.size),new Date(file.modified*1000).toLocaleString('zh-CN',{hour12:false})].entries()){const span=document.createElement(i===0?'strong':'span');span.textContent=value;row.append(span)}box.append(row)}const latest=files[0];$('latest-backup').textContent=latest?new Date(latest.modified*1000).toLocaleDateString('zh-CN'):'暂无归档';$('latest-detail').textContent=latest?latest.name:'启用自动备份，保护你的数据'}
-function routeHelp(){const form=$('core-form'),mode=form.elements.mode.value;form.elements.port.closest('label').hidden=mode!=='host_ext';form.elements.network.closest('label').hidden=mode==='caddy';if(cfg?.configured){$('route-help').textContent=mode==='caddy'?'当前使用 Caddy 自动 HTTPS，代理目标为 vaultwarden:80。更换域名后保存并应用配置。':mode==='host_ext'?'当前使用宿主机反向代理，转发目标为 http://127.0.0.1:'+form.elements.port.value+'，域名和证书由现有反代管理。':'当前通过 Docker 网络 '+form.elements.network.value+' 接入容器反代，转发目标为 http://vaultwarden:80，域名和证书由现有反代管理。';return}$('route-help').textContent=mode==='caddy'?'自动 HTTPS：将域名解析到本服务器，放行 80 / 443 端口；部署时将启动 Caddy 自动申请证书。已有服务占用这两个端口时，请选择已有反代方式。':mode==='host_ext'?'宿主机反代：目标填写 http://127.0.0.1:'+form.elements.port.value+'，并为密码库域名配置 HTTPS。该端口仅监听本机，容器 NPM 请使用“容器反向代理”模式。':'容器反代：填写 NPM 使用的 Docker 网络。代理目标为 http://vaultwarden:80，并为密码库域名开启 HTTPS。'}
-$('core-form').elements.mode.onchange=routeHelp;$('core-form').elements.port.oninput=routeHelp;
+function proxyNetworkChoices(){
+    const choices=new Map();
+    for(const proxy of proxyEnvironment?.proxies||[]){
+        if(!proxy.running)continue;
+        for(const network of proxy.networks||[]){if(!choices.has(network))choices.set(network,[]);choices.get(network).push(proxy.name+'（'+proxy.kind+'）')}
+    }
+    return choices;
+}
+function paintProxyEnvironment(){
+    const form=$('core-form'),mode=form.elements.mode.value,network=form.elements.network,choices=proxyNetworkChoices(),select=$('proxy-choice');
+    $('proxy-environment').hidden=!!cfg?.configured;
+    $('detect-proxy').disabled=proxyDetectionLoading;$('detect-proxy').textContent=proxyDetectionLoading?'正在检测…':'重新检测';
+    select.replaceChildren(new Option('请选择反代使用的网络',''));
+    for(const [name,proxies] of choices)select.add(new Option(proxies.join('、')+' · '+name,name));
+    $('proxy-choice-field').hidden=mode!=='docker_ext'||!!cfg?.configured||!choices.size;
+    select.disabled=!!cfg?.configured||proxyDetectionLoading;
+    if(!cfg?.configured&&mode==='docker_ext'&&!proxyNetworkEdited){
+        if(!network.value||network.value==='vaultwarden_net'||network.value===network.dataset.detected){
+            network.value=proxyEnvironment?.complete&&choices.size===1?[...choices.keys()][0]:'';
+            network.dataset.detected=network.value;
+        }
+    }
+    select.value=choices.has(network.value)?network.value:'';
+    let message='点击“重新检测”读取服务器反代和网络。';
+    if(proxyDetectionLoading)message='正在检测服务器的反代、Docker 网络和 80 / 443 端口…';
+    else if(proxyEnvironment){
+        const env=proxyEnvironment,descriptions=(env.proxies||[]).map(p=>p.name+'（'+p.kind+(p.running?'':'，已停止')+'）');
+        if(!env.available||!env.complete)message=env.message||'检测未完成，请重试或手动填写已确认的网络。';
+        else if(descriptions.length)message='检测到 '+descriptions.join('、')+'。'+(choices.size===1?'可自动使用网络 '+[...choices.keys()][0]+'。':choices.size>1?'存在多个网络，请选择使用哪一个。':'没有可直接接入的自定义网络，请先为反代配置网络。');
+        else message='未检测到可识别的代理容器。'+(env.busy_ports?.length?'80 / 443 中已有端口被占用，请确认宿主机反代或其他占用服务。':'新服务器可选择安装 Caddy、NPM 或 Nginx。如有未识别到的反代，也可手动填写其网络。');
+        if(env.busy_ports?.length)message+=' 已占用端口：'+env.busy_ports.join(' / ')+'。';
+        else if(!env.ports_checked)message+=' 端口占用情况未能完整确认。';
+    }
+    $('proxy-detection-message').textContent=message;
+}
+async function loadProxyEnvironment(){
+    const epoch=authEpoch,sequence=++proxyDetectionSequence;proxyDetectionLoading=true;routeHelp();
+    try{const env=await api('proxy/environment');if(epoch!==authEpoch||sequence!==proxyDetectionSequence)return;proxyEnvironment=env}
+    catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;proxyEnvironment={available:false,complete:false,proxies:[],message:'无法完成反代检测，请重试；也可手动填写已确认的网络。'}}
+    finally{if(epoch===authEpoch&&sequence===proxyDetectionSequence){proxyDetectionLoading=false;routeHelp()}}
+}
+const proxyModes={install:[['caddy','Caddy · 自动 HTTPS，配置简单'],['npm','Nginx Proxy Manager · 可视化管理'],['nginx','Nginx · 自动配置 HTTPS 与续期']],existing:[['docker_ext','已有容器反代（NPM / Caddy 等）'],['host_ext','已有宿主机反代（Nginx / Caddy 等）']]};
+function proxySource(mode){return ['caddy','npm','nginx'].includes(mode)?'install':'existing'}
+function syncProxyModes(source,selected){
+    const select=$('core-form').elements.mode,options=proxyModes[source];
+    if(Array.from(select.options).map(o=>o.value).join(',')!==options.map(o=>o[0]).join(',')){select.replaceChildren(...options.map(([value,label])=>new Option(label,value)))}
+    select.value=options.some(o=>o[0]===selected)?selected:options[0][0];
+    $('proxy-source').value=source;$('proxy-source').disabled=!!cfg?.configured;
+    $('proxy-mode-label').textContent=source==='install'?'安装的反代':'已有反代类型';
+}
+function renderManagedProxy(){
+    const proxy=cfg?.proxy||{},npm=proxy.kind==='npm',managed=!!proxy.managed;
+    $('managed-proxy-info').hidden=!managed;$('npm-access').hidden=!npm;
+    $('remove-proxy-field').hidden=!managed||$('remove-form').elements.scope.value==='backup';
+    if(npm){
+        const url=new URL(location.href);url.protocol='http:';url.port=String(proxy.admin_port);url.pathname='/';url.search='';url.hash='';$('open-npm').href=url.href;
+        $('managed-proxy-description').textContent='NPM 由面板安装，管理邮箱为 '+proxy.email+'，管理端口为 '+proxy.admin_port+'。部署完成后可打开管理界面；若无法访问，请检查该端口是否放行。';
+    }else if(managed)$('managed-proxy-description').textContent='Nginx 与证书续期服务由面板管理；修改域名后保存并应用配置，证书申请失败会恢复之前的 Nginx 配置。';
+}
+function routeHelp(){
+    const form=$('core-form');let mode=form.elements.mode.value;
+    syncProxyModes(proxySource(mode),mode);mode=form.elements.mode.value;
+    $('npm-port-field').hidden=mode!=='npm';$('npm-password-field').hidden=mode!=='npm';
+    form.elements.NPM_ADMIN_PORT.disabled=mode!=='npm'||!!cfg?.configured;form.elements.NPM_ADMIN_PASSWORD.disabled=mode!=='npm';
+    form.elements.SERVER_ADMIN_EMAIL.required=['npm','nginx'].includes(mode);
+    $('npm-password-label').textContent=cfg?.configured?'NPM 当前管理密码':'NPM 管理密码';
+    $('npm-password-help').textContent=cfg?.configured?'留空保留。若在 NPM 改过密码，请在这里填写当前密码，以便面板继续自动配置站点。':'留空自动生成随机密码；保存后可在此页面查看管理账号。';
+    if(cfg?.proxy?.admin_port)form.elements.NPM_ADMIN_PORT.value=cfg.proxy.admin_port;
+    renderManagedProxy();
+    form.elements.port.closest('label').hidden=mode!=='host_ext';form.elements.network.closest('label').hidden=mode!=='docker_ext';
+    form.elements.network.required=mode==='docker_ext'&&!cfg?.configured;
+    if(!cfg?.configured){if(mode!=='docker_ext')form.elements.network.value=cfg?.network||'vaultwarden_net';else if(proxyNetworkEdited)form.elements.network.value=proxyManualNetwork}
+    paintProxyEnvironment();
+    if(!cfg?.configured&&mode==='npm'){$('route-help').textContent='新装 NPM：自动启动代理、创建管理账号、配置密码库站点并申请 HTTPS；无需再手动新增转发规则。需要域名已解析到本机，80 / 443 和管理端口可用。';return}
+    if(!cfg?.configured&&mode==='nginx'){$('route-help').textContent='新装 Nginx：自动生成反代配置、申请 HTTPS 并启用证书续期；无需手写 Nginx 配置。需要域名已解析到本机，80 / 443 端口可用。';return}
+    if(cfg?.configured&&['npm','nginx'].includes(mode)){$('route-help').textContent=mode==='npm'?'当前由面板安装的 NPM 提供 HTTPS；保存并应用配置会自动更新密码库站点。':'当前由面板安装的 Nginx 提供 HTTPS，证书定时续期。保存后应用配置以生效。';return}
+    if(cfg?.configured){$('route-help').textContent=mode==='caddy'?'当前使用 Caddy 自动 HTTPS，代理目标为 vaultwarden:80。更换域名后保存并应用配置。':mode==='host_ext'?'当前使用宿主机反向代理，转发目标为 http://127.0.0.1:'+form.elements.port.value+'，域名和证书由现有反代管理。':'当前通过 Docker 网络 '+form.elements.network.value+' 接入容器反代，转发目标为 http://vaultwarden:80，域名和证书由现有反代管理。';return}
+    $('route-help').textContent=mode==='caddy'?'无需预装反代：部署时自动启动 Caddy 容器并申请 HTTPS 证书。请将域名解析到本服务器并放行 80 / 443；若端口已有服务，请选择已有反代方式。':mode==='host_ext'?'使用服务器上已经运行的 Nginx、Caddy 等反代，转发到 http://127.0.0.1:'+form.elements.port.value+'，域名和 HTTPS 由现有反代配置。此选项不会安装宿主机反代。':'使用已运行的 NPM、Caddy、Traefik 等代理容器，Vaultwarden 加入所选网络；在现有反代中添加密码库域名，目标填写 http://vaultwarden:80 并配置 HTTPS。此选项不会安装 NPM，也不会改写已有反代配置。';
+}
+$('proxy-source').onchange=()=>{syncProxyModes($('proxy-source').value);dirty.add('core-form');routeHelp();if(!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()};
+$('core-form').elements.mode.onchange=()=>{routeHelp();if(!cfg?.configured&&!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()};
+$('core-form').elements.port.oninput=routeHelp;
+$('core-form').elements.network.oninput=()=>{proxyNetworkEdited=true;proxyManualNetwork=$('core-form').elements.network.value;routeHelp()};
+$('proxy-choice').onchange=()=>{if(!$('proxy-choice').value)return;$('core-form').elements.network.value=$('proxy-choice').value;proxyNetworkEdited=true;proxyManualNetwork=$('proxy-choice').value;dirty.add('core-form');routeHelp()};
+$('detect-proxy').onclick=loadProxyEnvironment;
+$('remove-form').elements.scope.addEventListener('change',()=>{if($('remove-form').elements.scope.value==='backup')$('remove-form').elements.remove_proxy.checked=false;renderManagedProxy()});
+$('show-npm-credentials').onclick=async()=>{
+    if(!$('npm-credentials').hidden){$('npm-credentials').hidden=true;$('npm-login-password').value='';$('show-npm-credentials').textContent='查看 NPM 管理账号';return}
+    try{const credentials=await api('proxy/credentials',{});$('npm-login-email').value=credentials.email;$('npm-login-password').value=credentials.password;$('npm-login-password').type='text';$('npm-credentials').hidden=false;$('show-npm-credentials').textContent='隐藏 NPM 管理账号'}catch(error){if(!isSessionTransition(error))notice(error.message,true)}
+};
+
 function formValues(id){const values={};for(const field of $(id).elements){if(!field.name)continue;values[field.name]=field.type==='checkbox'?field.checked:field.value}return values}
 for(const [id,section]of [['core-form','core'],['mail-form','mail'],['backup-form','backup']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget;const button=form.querySelector('button[type=submit]')||form.querySelector('button');button.disabled=true;try{const data=formValues(id);const result=await api('config/'+section,data);dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(v=>v.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
 async function refreshStatus(){try{const status=await api('status');environment=status;lastStatus=Date.now();for(const [name,id]of [['vaultwarden','vault'],['vaultwarden-backup','backup']]){const row=status.containers.find(r=>r.Names===name),active=row&&row.State==='running';$(id+'-state').textContent=!status.available?(status.docker_installed===false?'环境未就绪':'状态未知'):!row?'尚未部署':active?'运行中':'已停止';$(id+'-state').classList.toggle('good',!!active);$(id+'-detail').textContent=row?row.Status:status.message||'完成配置后即可启动';if(id==='vault'){$('step-deploy').classList.toggle('done',!!active);$('step-deploy').querySelector('b').textContent=active?'已运行':'待部署';$('setup-heading').textContent=active?'你的密码库，正在安心运行。':'三步，拥有自己的密码库。'}}$('docker-help').hidden=status.available;renderPresentation()}catch(e){if(isSessionTransition(e))return;environment={unknown:true,available:false,docker_installed:null,containers:[]};for(const id of ['vault','backup']){$(id+'-state').textContent='状态未知';$(id+'-state').classList.remove('good');$(id+'-detail').textContent='暂时无法读取服务状态'}renderPresentation();notice(e.message,true)}}
@@ -150,7 +241,7 @@ function renderHelp(box,help){const regex=/https?:\/\/[^\s<>"']+/g;let index=0;f
 function renderResult(job){if(resultSeen===job.id)return;resultSeen=job.id;const result=job.result;if(result.providers){const select=$('wizard-start-form').elements.type,old=select.value;select.replaceChildren();for(const p of result.providers)select.add(new Option(p.description+' ('+p.name+')',p.name));select.value=old;revealGroup($('wizard-start-form'));location.hash='remote';notice('全部存储类型已加载。')}if(result.question){wizardId=result.wizard_id;const option=result.question,box=$('wizard-question');box.replaceChildren();const title=document.createElement('label');title.className='question-label';title.htmlFor='wizard-answer';title.textContent=({client_id:'客户端 ID（通常可留空）',client_secret:'客户端密钥',config_token:'授权令牌',config_is_local:'使用服务器上的浏览器授权（远程服务器固定为否）',host:'服务器地址',user:'登录账号',pass:'登录密码',port:'端口',vendor:'服务商类型',scope:'授权范围',key_file:'私钥文件路径'})[option.Name]||option.Name;const help=document.createElement('div');help.className='question-help';renderHelp(help,option.Help||'');let input;if(option.Exclusive&&option.Examples?.length){input=document.createElement('select');for(const item of option.Examples)input.add(new Option(item.Help+' · '+item.Value,item.Value))}else{input=document.createElement('input');input.type=option.IsPassword||/token|secret|pass/i.test(option.Name)?'password':'text';input.maxLength=60000;if(option.Examples?.length){const hints=document.createElement('p');hints.className='muted';hints.textContent='可选值：'+option.Examples.map(v=>v.Value+' ('+v.Help+')').join('、');box.append(hints)}}input.id='wizard-answer';input.required=!!option.Required;input.value=option.Default===null?'':String(option.Default??'');if(option.Name==='config_is_local'){input.value='false';input.disabled=true}box.append(title,help,input);if(result.error){const error=document.createElement('p');error.textContent=result.error;error.className='danger-text';box.append(error)}$('wizard-question-form').hidden=false;revealGroup($('wizard-question-form'));location.hash='remote';notice('请按向导填写下一项。')}if(result.done){$('wizard-question-form').hidden=true;location.hash='remote';notice('存储配置已保存，可验证连接并添加为备份目标。')}if(result.remote_files){const box=$('remote-files');box.replaceChildren();for(const file of result.remote_files){const row=document.createElement('div');row.className='file-row';const name=document.createElement('strong');name.textContent=file.name;const size=document.createElement('span');size.textContent=formatSize(file.size);const date=document.createElement('span');date.textContent=file.modified;const button=document.createElement('button');button.className='ghost';button.textContent='下载到本机';button.onclick=()=>startTask('remote-download',{...remoteBrowse,file:file.name});row.append(name,size,date,button);box.append(row)}if(!result.remote_files.length)box.textContent='该目录没有 zip / 7z 备份。';location.hash='remote'}}
 $('remote-browse-form').onsubmit=async event=>{event.preventDefault();remoteBrowse=formValues('remote-browse-form');await startTask('remote-list',remoteBrowse)};
 $('restore-form').onsubmit=async event=>{event.preventDefault();const values=formValues('restore-form');if(values.confirmation!=='RESTORE')return notice('请输入 RESTORE 确认覆盖恢复。',true);if(!values.file)return notice('请选择备份文件。',true);if(await startTask('restore',values)){$('restore-form').elements.password.value='';$('restore-form').elements.confirmation.value=''}};
-$('remove-form').onsubmit=async event=>{event.preventDefault();const values=formValues('remove-form');if(values.confirmation!=='DELETE')return notice('请输入 DELETE 确认卸载。',true);if(!confirm(values.delete_data?'将永久删除所选服务的数据和配置。确认继续？':'将移除所选服务容器，保留配置和数据。确认继续？'))return;if(await startTask('remove-services',values))$('remove-form').elements.confirmation.value=''};
+$('remove-form').onsubmit=async event=>{event.preventDefault();const values=formValues('remove-form');if(values.confirmation!=='DELETE')return notice('请输入 DELETE 确认卸载。',true);if(!confirm((values.remove_proxy?'将同时移除反代并影响其所有站点。\n':'')+(values.delete_data?'将永久删除所选服务的数据和配置。确认继续？':'将移除所选服务容器，保留配置和数据。确认继续？')))return;if(await startTask('remove-services',values))$('remove-form').elements.confirmation.value=''};
 $('remove-form').onchange=()=>{$('remove-summary').textContent=$('remove-form').elements.delete_data.checked?'已选择永久删除数据。密码库范围会删除数据库和附件；备份范围会删除本机备份与远程配置。云盘内文件不会删除。':'仅移除容器，配置与数据保留。不会卸载 Docker 或删除其他应用的网络。'};
 $('upload-form').onsubmit=event=>{event.preventDefault();const file=$('backup-upload').files[0];if(!file)return;const epoch=authEpoch;const xhr=new XMLHttpRequest();activeUploads.add(xhr);xhr.onloadend=()=>activeUploads.delete(xhr);xhr.open('POST','/api/backup/upload?name='+encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-CSRF-Token',csrf);const button=$('upload-form').querySelector('button');button.disabled=true;xhr.upload.onprogress=e=>{if(epoch!==authEpoch)return;$('upload-status').textContent=e.lengthComputable?'上传 '+Math.round(e.loaded/e.total*100)+'%':'上传中…'};xhr.onload=async()=>{if(epoch!==authEpoch)return;button.disabled=false;try{if(xhr.status===401){expireSession();return}const result=JSON.parse(xhr.responseText);if(xhr.status!==200)throw Error(result.error||'上传失败');$('upload-status').textContent='上传完成';await loadConfig();if(epoch!==authEpoch)return;$('restore-form').elements.file.value=result.file;notice('已上传，可在下方选择恢复。')}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}};xhr.onerror=()=>{if(epoch!==authEpoch)return;button.disabled=false;notice('上传连接中断，请重新上传。',true)};xhr.send(file)};
 const featureMap=[[1,'生成主服务配置','vault'],[2,'初始化备份服务','backup'],[3,'配置远程存储','remote'],[4,'启动 / 应用主服务','deploy'],[5,'停止主服务','stop'],[6,'启动 / 应用备份','backup-start'],[7,'停止备份服务','backup-stop'],[8,'升级服务镜像','upgrade'],[9,'加密管理口令','vault'],[10,'修改主服务配置','vault'],[11,'修改备份配置','backup'],[12,'立即备份','backup-now'],[13,'访问信息与状态','info'],[14,'服务日志','tasks'],[15,'备份诊断','backup-diagnose'],[16,'恢复备份数据','restore'],[17,'环境体检','doctor'],[18,'卸载与清理','cleanup']];
@@ -396,7 +487,7 @@ addEventListener('resize',positionVersionPopover);addEventListener('scroll',posi
 $('upgrade-panel').onclick=async()=>{
     if(!panelUpdateInfo?.available||!panelUpdateInfo.latest||checkingUpdates||panelUpdating)return;
     if(taskRunning||consoleRunning)return notice('请先完成当前任务或结束高级控制台。',true);
-    const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password]')).some(input=>input.value);
+    const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password]')).some(input=>!input.readOnly&&input.value);
     const message=(hasInput?'页面还有未保存输入，重启后将丢失。\n':'')+'确认升级管理面板？升级会重启面板并要求重新登录；密码库与备份容器保持运行。';
     if(!confirm(message))return;
     $('upgrade-panel').disabled=true;

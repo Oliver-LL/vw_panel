@@ -116,7 +116,8 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(read_vars(env)['ADMIN_TOKEN'].startswith('$argon2id$'))
         self.assertNotIn('SecretPassword!123', json.dumps(self.manager.task()))
 
-    def test_new_caddy_config_and_no_overwrite_on_domain_change(self):
+    @patch('manager.ensure_caddy_available')
+    def test_new_caddy_config_and_no_overwrite_on_domain_change(self, caddy_available):
         self.manager.save('core', dict(self.data, mode='caddy'))
         caddy = self.deploy / 'caddy/Caddyfile'
         original = caddy.read_text()
@@ -190,6 +191,17 @@ class HTTPRoutesTests(unittest.TestCase):
             return response.status, body
         try:
             self.assertEqual(request('GET', '/api/config', authenticated=False)[0], 401)
+            with patch.object(panel, 'detect_environment', return_value={'available': True, 'proxies': []}) as detection:
+                self.assertEqual(request('GET', '/api/proxy/environment', authenticated=False)[0], 401)
+                detection.assert_not_called()
+                self.assertEqual(request('GET', '/api/proxy/environment')[0], 200)
+                detection.assert_called_once()
+            with patch.object(app.manager, 'npm_credentials', return_value={'email':'admin@example.com','password':'fixture-secret','port':8181}) as credentials:
+                self.assertEqual(request('POST','/api/proxy/credentials',{},authenticated=False)[0],401)
+                self.assertEqual(request('POST','/api/proxy/credentials',{},csrf=False)[0],403)
+                credentials.assert_not_called()
+                status,body=request('POST','/api/proxy/credentials',{})
+                self.assertEqual(status,200);self.assertEqual(json.loads(body)['password'],'fixture-secret')
             self.assertEqual(request('POST', '/api/config/core', self.data, csrf=False)[0], 403)
             self.assertFalse(self.deploy.exists())
             self.assertEqual(request('POST', '/api/config/core', self.data)[0], 200)

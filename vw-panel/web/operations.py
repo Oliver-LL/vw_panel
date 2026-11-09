@@ -197,6 +197,8 @@ class OperationsMixin:
         if action == 'remove-services':
             if data.get('scope') not in ('core','backup','all') or not isinstance(data.get('delete_data'),bool):
                 raise ValueError('请选择卸载范围与数据处理方式。')
+            if not isinstance(data.get('remove_proxy', False), bool) or (data.get('remove_proxy') and data.get('scope')=='backup'):
+                raise ValueError('卸载备份时不能移除反代。')
         if action.startswith('remote-') and action not in ('remote-providers','remote-continue'):
             name=data.get('name','')
             if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}',name):
@@ -266,7 +268,13 @@ class OperationsMixin:
                 self.emit('请确认域名 DNS 指向服务器、HTTPS 已签发；端口响应不代表证书有效。')
             return
         if action=='proxy-logs':
-            self._command(['docker','logs','--tail','150','caddy']);return
+            memory=read_vars(self.memory)
+            name={'npm':'vw-panel-npm','nginx':'vw-panel-nginx'}.get(memory.get('PANEL_PROXY_KIND'), memory.get('EXISTING_CADDY_ID') or 'caddy')
+            self._command(['docker','logs','--tail','150',name])
+            if memory.get('PANEL_PROXY_KIND')=='nginx':
+                try:self._command(['docker','logs','--tail','100','vw-panel-certbot'])
+                except ValueError:self.emit('续期服务尚未就绪，请先完成首次证书申请。')
+            return
         if action=='upgrade-backup':
             self._command(self.compose(backup,'pull'))
             self._command(self.compose(backup,'up','-d'));return
@@ -452,6 +460,8 @@ class OperationsMixin:
     def remove_services(self,data):
         app,backup=self.paths()
         scope=data['scope'];delete=data['delete_data']
+        managed_proxy=self.proxy_folder() if data.get('remove_proxy') else None
+        if data.get('remove_proxy') and not managed_proxy:raise ValueError('没有面板安装的 NPM 或 Nginx 可移除。')
         # Explicit roots only. Never remove shared Docker networks or other projects.
         root=self.root()
         if not root.is_absolute() or len(root.parts)<3 or root.is_symlink():
@@ -472,4 +482,12 @@ class OperationsMixin:
                 if contents.count('reverse_proxy')==1 and contents.count('{')==1:
                     self._command(self.compose(caddy,'down'))
                     if delete:shutil.rmtree(caddy)
+        if managed_proxy:
+            self._command(self.compose(managed_proxy,'down'))
+            if delete:
+                shutil.rmtree(managed_proxy)
+                from manager import update_vars
+                update_vars(self.memory,{'PANEL_PROXY_KIND':'','PANEL_PROXY_DIR':''})
+        elif self.proxy_folder():
+            self.emit('已保留面板安装的反代，避免影响其其他站点。')
         self.emit('服务已卸载。'+('已删除所选服务的数据目录。' if delete else '已保留全部配置、数据库和备份文件，可重新部署。'))

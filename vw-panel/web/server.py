@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from manager import Manager
 from updater import Updates
+from proxy_environment import detect_environment
 
 SCRIPT = ROOT.parent / 'vw_web.sh'
 ACTIONS = {str(i) for i in range(1, 19)}
@@ -256,7 +257,7 @@ def status():
         rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
         return {'available': True, 'docker_installed': True, 'containers': [
             {key: row.get(key, '') for key in ('Names', 'State', 'Status', 'Image')}
-            for row in rows if row.get('Names') in ('vaultwarden', 'vaultwarden-backup', 'caddy')]}
+            for row in rows if row.get('Names') in ('vaultwarden', 'vaultwarden-backup', 'caddy', 'vw-panel-npm', 'vw-panel-nginx', 'vw-panel-certbot')]}
     except FileNotFoundError:
         return {'available': False, 'docker_installed': False, 'message': '尚未安装 Docker。', 'containers': []}
     except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -316,6 +317,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'csrf': auth[1]})
         if path == '/api/status':
             return self.reply(200, status())
+        if path == '/api/proxy/environment':
+            return self.reply(200, detect_environment())
         if path == '/api/settings':
             return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', [])})
         if path == '/api/backups/download':
@@ -436,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
                 with self.app.lock:
                     self.app.sessions.pop(auth[0], None)
                 return self.reply(200, {'ok': True}, cookie=self.cookie('', 0))
+            if path == '/api/proxy/credentials':
+                return self.reply(200, self.app.manager.npm_credentials())
             if path == '/api/domain':
                 if not isinstance(data.get('origin'), str):
                     raise ValueError('请输入域名访问地址。')

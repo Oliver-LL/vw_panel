@@ -81,9 +81,11 @@ def number(value, label, low, high):
 
 
 from operations import OperationsMixin, EXTRA_TASKS
+from proxy_environment import existing_network, ensure_caddy_available
+from managed_proxy import ManagedProxyMixin, ensure_proxy_ports
 
 
-class Manager(OperationsMixin):
+class Manager(ManagedProxyMixin, OperationsMixin):
     def __init__(self, state_dir, memory=None):
         self.state = Path(state_dir)
         self.memory = memory or Path.home() / '.vw_deploy.conf'
@@ -111,6 +113,9 @@ class Manager(OperationsMixin):
             memory = read_vars(self.memory)
             if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_DIR'):
                 paths.append(Path(memory['CADDY_DIR']) / 'Caddyfile')
+            if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
+                folder = self.proxy_folder(memory)
+                paths.extend(folder / name for name in ('settings.json', 'docker-compose.yml', 'desired.conf', 'credentials.json'))
         else:
             paths.append(folder / 'vw-backup-config/rclone/rclone.conf')
         digest = hashlib.sha256()
@@ -177,7 +182,7 @@ class Manager(OperationsMixin):
                      'SENDS_ALLOWED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_FROM', 'SMTP_USERNAME')
         return {'application': self.application_state(), 'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
                 'backup_configured': (backup / 'docker-compose.yml').exists(),
-                'mode': memory.get('PROXY_MODE', 'caddy'), 'port': memory.get('EXT_PORT', '8080'),
+                'mode': memory.get('PANEL_PROXY_KIND') or memory.get('PROXY_MODE', 'caddy'), 'proxy': self.public_proxy(), 'port': memory.get('EXT_PORT', '8080'),
                 'network': memory.get('DOCKER_NET', 'vaultwarden_net'),
                 'core': {key: core.get(key, '') for key in safe_keys},
                 'admin_set': bool(core.get('ADMIN_TOKEN')), 'smtp_password_set': bool(core.get('SMTP_PASSWORD')),
@@ -319,13 +324,20 @@ class Manager(OperationsMixin):
             if app.exists() and any(app.iterdir()):
                 raise ValueError('目标已有文件，请先确认原部署目录，避免覆盖已有数据。')
             mode = data.get('mode', 'caddy')
-            if mode not in ('caddy', 'host_ext', 'docker_ext'):
+            if mode not in ('caddy', 'npm', 'nginx', 'host_ext', 'docker_ext'):
                 raise ValueError('请选择访问方式。')
             network = text(data.get('network', 'vaultwarden_net'), '网络名')
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}', network):
                 raise ValueError('Docker 网络名不正确。')
+            if mode == 'docker_ext':
+                existing_network(network)
+            elif mode == 'caddy':
+                ensure_caddy_available()
+            if mode in ('caddy', 'npm', 'nginx') and p.port not in (None, 443):
+                raise ValueError('自动安装的反代使用 HTTPS 443 端口，请填写不带自定义端口的域名。')
+            proxy_plan = self.prepare_proxy(mode, Path(directory), p.hostname, network, updates['SERVER_ADMIN_EMAIL'], data, existing=memory.get('PANEL_PROXY_KIND')==mode and memory.get('PANEL_PROXY_DIR')==str(Path(directory)/mode)) if mode in ('npm', 'nginx') else None
             port = number(data.get('port', 8080), '密码库端口', 1024, 65535)
-            memory.update(VW_DIR=directory, PROXY_MODE=mode, DOCKER_NET=network, EXT_PORT=str(port),
+            memory.update(VW_DIR=directory, PROXY_MODE='docker_ext' if mode in ('npm', 'nginx') else mode, DOCKER_NET=network, EXT_PORT=str(port),
                           SKIP_CADDY='false' if mode == 'caddy' else 'true')
             service = {'image': 'vaultwarden/server:latest', 'container_name': 'vaultwarden',
                        'restart': 'unless-stopped', 'env_file': ['./vaultwarden.env'],
@@ -350,6 +362,11 @@ class Manager(OperationsMixin):
                 write_private(caddy / 'docker-compose.yml', json.dumps(proxy, indent=2))
                 write_private(caddy / 'Caddyfile', p.netloc + ' {\n reverse_proxy vaultwarden:80\n}\n')
                 memory.update(CADDY_DIR=str(caddy), CADDY_EXISTS='false')
+            if proxy_plan:
+                self.write_proxy_plan(proxy_plan)
+                memory.update(PANEL_PROXY_KIND=mode, PANEL_PROXY_DIR=str(proxy_plan[0]))
+            else:
+                memory.pop('PANEL_PROXY_KIND', None);memory.pop('PANEL_PROXY_DIR', None)
             # Script memory uses double quoted literals; only validated topology values enter it.
             write_private(self.memory, '\n'.join('%s="%s"' % (k, v) for k, v in memory.items()) + '\n')
             updates.update(TZ='Asia/Shanghai', WEB_VAULT_ENABLED='true', ENABLE_DB_WAL='true')
@@ -368,6 +385,10 @@ class Manager(OperationsMixin):
             else:raise ValueError('未识别到独立或带管理标记的站点配置，已保留原文件。')
             write_private(caddy_file.with_name('Caddyfile.panel-backup'),caddy_file.read_text())
             write_private(caddy_file,content)
+        if current['configured'] and current['mode'] in ('npm', 'nginx'):
+            if p.port not in (None, 443):raise ValueError('自动安装的反代使用 HTTPS 443 端口。')
+            plan = self.prepare_proxy(current['mode'], self.root(), p.hostname, current['network'], updates['SERVER_ADMIN_EMAIL'], data, existing=True)
+            self.write_proxy_plan(plan)
         update_vars(app / 'vaultwarden.env', updates)
         return {'ok': True, 'message': '密码库配置已保存。首次部署请设置管理口令，再点击“部署 / 应用配置”。'}
 
@@ -442,6 +463,10 @@ class Manager(OperationsMixin):
                 for key, value in read_vars(path).items():
                     if any(word in key for word in ('TOKEN', 'PASSWORD', 'SECRET', 'KEY', 'SMTP_VARIABLES')) and value:
                         raw = raw.replace(value, '[已隐藏]').replace(value.replace('$$', '$'), '[已隐藏]')
+            if read_vars(self.memory).get('PANEL_PROXY_KIND') == 'npm':
+                password = self.npm_credentials()['password']
+                if password:raw = raw.replace(password, '[已隐藏]')
+                raw = re.sub(r'(Creating a new user: [^\r\n]* with password: )[^\r\n]*', r'\1[已隐藏]', raw, flags=re.IGNORECASE)
             with self.mutex:
                 self.logfile.write(raw.encode())
                 self.logfile.flush()
@@ -533,15 +558,26 @@ class Manager(OperationsMixin):
                     raise ValueError('请先在密码库配置页设置管理口令。')
                 self._command(['docker', 'compose', 'version'])
                 network = memory.get('DOCKER_NET')
+                if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
+                    existing_network(network)
+                if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
+                    settings = self.proxy_settings()
+                    ensure_proxy_ports(settings['kind'], self.proxy_folder(), settings.get('admin_port'))
+                if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
+                    ensure_caddy_available(Path(memory['CADDY_DIR']) / 'Caddyfile')
                 if network:
                     result = subprocess.run(['docker', 'network', 'inspect', network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
                     if result.returncode:
+                        if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
+                            raise ValueError('反代网络已不存在，请恢复原网络后重新部署。')
                         self._command(['docker', 'network', 'create', network])
                 if action == 'upgrade':
                     self._command(compose(app, 'pull'))
                 self._command(compose(app, 'up', '-d'))
                 if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
                     self._command(compose(Path(memory['CADDY_DIR']), 'up', '-d'))
+                if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
+                    self.deploy_managed_proxy(upgrade=action=='upgrade')
                 if action=='upgrade' and (backup/'docker-compose.yml').exists():
                     self._command(compose(backup,'pull'))
                     self._command(compose(backup,'up','-d'))
