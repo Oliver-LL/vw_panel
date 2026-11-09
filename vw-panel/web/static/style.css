@@ -50,3 +50,18 @@ main{max-width:none;margin:0;padding:30px 32px 24px}.page-title{margin-bottom:23
 .proxy-log-picker{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.proxy-log-picker>.field{flex:1;min-width:200px;margin:0}.proxy-log-picker>.ghost{margin-bottom:18px}
 
 .proxy-source-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.proxy-source-heading>label{color:#57556c;font-weight:550}.proxy-source-heading>.ghost{padding:0;font-size:11px;white-space:nowrap;color:#89849b}.proxy-source-field>select{width:100%;min-width:0;text-overflow:ellipsis}
+
+/* Save actions belong to the configuration group they submit. */
+.group-body .form-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0 0;padding-top:18px;border-top:1px solid #eeedf5}
+.group-body .form-footer>span{max-width:none;flex:1 1 180px;font-size:11px;line-height:1.6}
+.group-body .form-footer>button[type=submit],.group-body .form-actions{margin-left:auto}
+.form-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px}
+.permission-settings{margin-top:24px;border-top:1px solid #eeedf5}
+.permission-settings>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0 0;cursor:pointer;list-style:none;font-size:13px;font-weight:600}
+.permission-settings>summary::-webkit-details-marker{display:none}
+.permission-settings summary small{display:block;margin-top:7px;color:#9390a7;font-size:11px;font-weight:400;line-height:1.6}
+.permission-toggle{color:#8c83b5;font-size:11px;white-space:nowrap;font-weight:400}
+.permission-toggle:after{content:'展开 ⌄'}
+.permission-settings[open] .permission-toggle:after{content:'收起 ⌃'}
+.permission-body{padding-top:12px}
+@media(max-width:760px){.group-body .form-footer{align-items:stretch}.group-body .form-footer>span{flex-basis:100%}.group-body .form-footer>button[type=submit]{width:100%}.form-actions{width:100%}.form-actions>button[type=submit]{flex:1}.permission-settings summary small{max-width:250px}}
