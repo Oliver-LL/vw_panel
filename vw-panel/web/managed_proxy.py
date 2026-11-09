@@ -102,7 +102,7 @@ class NPMAPIError(ValueError):
     """Safe stage and HTTP diagnostics; never expose upstream response bodies."""
     def __init__(self,path,method,status=None,reason='http',compat='',hint=''):
         self.status=status;self.path=path;self.compat=compat
-        stage='登录 NPM' if path=='tokens' else '读取 NPM 版本' if not path else '申请 HTTPS 证书' if path=='nginx/certificates' and method=='POST' else '读取证书列表' if path=='nginx/certificates' else '写入代理站点' if method in ('POST','PUT') else '读取代理站点'
+        stage='读取 NPM 管理邮箱' if path=='users/me' else '登录 NPM' if path=='tokens' else '读取 NPM 版本' if not path else '申请 HTTPS 证书' if path=='nginx/certificates' and method=='POST' else '读取证书列表' if path=='nginx/certificates' else '写入代理站点' if method in ('POST','PUT') else '读取代理站点'
         detail='（HTTP %s）'%status if status else ''
         if reason=='connect':message=stage+'失败：无法连接 NPM 管理接口，请检查容器状态和 81 端口。'
         elif reason=='timeout':message=stage+'超时，请先检查 NPM 日志及证书列表，确认是否已完成后再重试，避免重复申请。'

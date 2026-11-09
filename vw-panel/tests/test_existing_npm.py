@@ -105,6 +105,7 @@ class ExistingNPMTests(unittest.TestCase):
                 seen.append((self.path,data,self.headers.get('Authorization')))
                 if redirect[0]:self.send_response(302);self.send_header('Location','/leaked');self.end_headers();return
                 if self.path=='/api/tokens':response={'token':'private-token'}
+                elif self.path=='/api/users/me':response={'id':1,'email':'verified@example.com','name':'NPM owner'}
                 elif self.command=='GET':response=[]
                 elif self.path=='/api/nginx/certificates':response={'id':7}
                 else:response={'id':9,'meta':{'nginx_online':True}}
@@ -113,6 +114,8 @@ class ExistingNPMTests(unittest.TestCase):
         try:
             with patch.object(adapter,'_npm_api_base',return_value='http://127.0.0.1:%s/api/'%server.server_port):
                 adapter.configure()
+                self.assertEqual(self.manager.config()['external_proxy']['email'],'verified@example.com')
+                self.assertEqual(self.manager.config()['external_proxy']['email_source'],'npm')
                 cert=next(data for path,data,auth in seen if path=='/api/nginx/certificates' and data)
                 self.assertNotIn('letsencrypt_email',cert['meta'])
                 self.assertNotIn('letsencrypt_agree',cert['meta'])

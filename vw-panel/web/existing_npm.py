@@ -63,7 +63,16 @@ class ExistingNPM(ManagedProxyMixin):
         result=self._npm_request('tokens',{'identity':self.email,'secret':self.password})
         if not isinstance(result,dict) or not isinstance(result.get('token'),str) or not result['token']:
             raise ValueError('NPM 登录未返回有效授权，请检查 NPM 账号与接口版本。')
-        return result['token']
+        token=result['token'];self.email_source='login'
+        try:
+            profile=self._npm_request('users/me',token=token)
+            email=profile.get('email','') if isinstance(profile,dict) else ''
+            if isinstance(email,str) and re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):
+                self.email=email;self.email_source='npm'
+                self.emit('已通过授权读取 NPM 当前账号邮箱；密码不回传。')
+        except ValueError:
+            self.emit('NPM 用户资料接口暂不可用，保留本次已登录邮箱。')
+        return token
 
     def _npm_request(self,path,data=None,token=None,method=None,timeout=15):
         if path!='nginx/certificates' or data is None:return super()._npm_request(path,data,token,method,timeout)
@@ -96,7 +105,7 @@ class ExistingNPM(ManagedProxyMixin):
         try:
             self.configure_npm()
             from manager import write_private
-            saved=json.loads(state.read_text());saved['network']=self.network;saved['email']=self.email
+            saved=json.loads(state.read_text());saved['network']=self.network;saved['email']=self.email;saved['email_source']=getattr(self,'email_source','login')
             write_private(state,json.dumps(saved))
             write_private(self.manager.state/'existing-npm'/'last-target.json',json.dumps({'target':self.target}))
             self.emit('已在现有 NPM 写入密码库站点与 HTTPS。请实际打开密码库验证访问。')
@@ -123,5 +132,5 @@ def public_route(manager,memory,core):
         state=json.loads((root/target/'route-state.json').read_text())
         domain=urlsplit(core.get('DOMAIN','')).hostname
         if state.get('domain')!=domain or state.get('network')!=memory.get('DOCKER_NET') or not isinstance(state.get('host_id'),int):return {}
-        return {'recorded':True,'target':target,'domain':domain,'email':state.get('email','') if isinstance(state.get('email',''),str) else ''}
+        return {'recorded':True,'target':target,'domain':domain,'email':state.get('email','') if isinstance(state.get('email',''),str) else '','email_source':'npm' if state.get('email_source')=='npm' else 'login'}
     except (OSError,ValueError,TypeError,AttributeError):return {}

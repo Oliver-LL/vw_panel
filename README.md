@@ -135,3 +135,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.7.9 现有 NPM 证书兼容
 
 直接使用现有 NPM 管理员账号。证书参数按 NPM 版本选择，失败提示区分登录、连接、权限和证书验证阶段；申请失败不会反复重试证书。新版本接口参考：[NPM 证书参数](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.16.0/backend/schema/components/certificate-object.json)。
+
+## 0.7.10 管理地址与 NPM 账号信息
+
+概览同时显示密码库与 /admin 管理后台入口。NPM 登录授权后可读取当前账号邮箱并记住；NPM 自身将密码保存为 bcrypt 校验值，不能还原为原密码。来源：[NPM 认证模型](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.16.0/backend/models/auth.js)。
