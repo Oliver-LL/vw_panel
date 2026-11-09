@@ -10,7 +10,7 @@ const activeUploads=new Set();
 function sessionChanged(){const error=new Error('');error.name='SessionChanged';return error}
 function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
-    authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
+    setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
@@ -27,19 +27,52 @@ function expireSession(){
     showLogin(phase==='authenticated'?'登录状态已失效，请重新登录。':phase==='authenticating'?'登录状态未能保持，请确认允许 Cookie，并使用同一个访问地址。':'');
 }
 
-function notice(message,error=false){if(authPhase!=='authenticated'){message='';error=false}$('notice').textContent=message;$('notice').hidden=!message;$('notice').classList.toggle('error',error)}
+function notice(message,error=false){if(error&&isAuthMessage(message)&&authPhase==='authenticated'){$('notice').textContent='正在确认登录状态…';$('notice').hidden=false;$('notice').classList.remove('error');reconcileAuthNotice();return}if(authPhase!=='authenticated'){message='';error=false}$('notice').textContent=message;$('notice').hidden=!message;$('notice').classList.toggle('error',error)}
 function route(){const page=location.hash.slice(1) in names?location.hash.slice(1):'overview';document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==page);document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active',v.dataset.page===page));$('breadcrumb').textContent=names[page];document.title=names[page]+' · Vaultwarden'}
 addEventListener('hashchange',()=>{route();notice('')});route();
-async function api(path,data){
+let authRecheck=null;
+function isAuthMessage(message){return typeof message==='string'&&/^请先登录[。.!！]?$/.test(message.trim())}
+async function verifyCurrentSession(epoch=authEpoch){
+    if(epoch!==authEpoch)throw sessionChanged();
+    if(authRecheck?.epoch===epoch)return authRecheck.promise;
+    const request={epoch};
+    request.promise=(async()=>{
+        const response=await sessionRequest('/api/session',{credentials:'same-origin'});
+        if(epoch!==authEpoch)throw sessionChanged();
+        if(response.status===401)return null;
+        const value=await response.json();if(epoch!==authEpoch)throw sessionChanged();
+        if(isAuthMessage(value.error))return null;
+        if(!response.ok||typeof value.csrf!=='string'||!value.csrf)throw Error('暂时无法确认登录状态，请稍后重试。');
+        csrf=value.csrf;return value;
+    })().finally(()=>{if(authRecheck===request)authRecheck=null});
+    authRecheck=request;return request.promise;
+}
+async function reconcileAuthNotice(){
+    const epoch=authEpoch;
+    try{const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)return;if(!valid){expireSession();return}if($('notice').textContent==='正在确认登录状态…')notice('')}
+    catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;notice('暂时无法确认登录状态，请稍后重试。',true)}
+}
+async function api(path,data,retried=false){
     const epoch=authEpoch;const options={credentials:'same-origin',headers:{}};
     if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':csrf};options.body=JSON.stringify(data)}
     const response=await sessionRequest('/api/'+path,options);
     if(epoch!==authEpoch)throw sessionChanged();
-    if(response.status===401&&path!=='login'){expireSession();throw sessionChanged()}
-    let value;
-    try{value=await response.json()}catch(error){if(epoch!==authEpoch)throw sessionChanged();throw Error('服务器没有返回有效结果，请检查连接。')}
+    let value=null;
+    if(response.status!==401||path==='login'){
+        try{value=await response.json()}catch(error){if(epoch!==authEpoch)throw sessionChanged();throw Error('服务器没有返回有效结果，请检查连接。')}
+    }
     if(epoch!==authEpoch)throw sessionChanged();
-    if(!response.ok){if(lastSubmittedForm&&(path.startsWith('config/')||path==='task/start'))revealGroup(lastSubmittedForm.querySelector(':invalid')||lastSubmittedForm);throw Error(value.error||'操作失败')}
+    if(path!=='login'&&(response.status===401||isAuthMessage(value?.error))){
+        if(authPhase==='authenticated'&&path!=='session'){
+            const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();
+            if(valid){
+                if(data===undefined&&!retried)return api(path,undefined,true);
+                throw Error('当前登录有效，但此请求未能完成，请重试。');
+            }
+        }
+        expireSession();throw sessionChanged();
+    }
+    if(!response.ok){if(lastSubmittedForm&&(path.startsWith('config/')||path==='task/start'))revealGroup(lastSubmittedForm.querySelector(':invalid')||lastSubmittedForm);throw Error(value?.error||'操作失败')}
     return value;
 }
 function showLogin(message=''){
@@ -89,7 +122,7 @@ async function startTask(action,extra={}){const epoch=authEpoch;if(panelUpdating
 document.querySelectorAll('[data-task]').forEach(button=>button.onclick=()=>startTask(button.dataset.task));
 $('remote-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(!confirm('将验证 WebDAV 连接并切换备份目标。原文件保留，配置完成后需应用备份服务。确认继续？'))return;if(await startTask('remote-save',formValues('remote-form'))){dirty.delete('remote-form');form.elements.password.value=''}};
 $('token-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(form.elements.password.value!==form.elements.confirmation.value)return notice('两次输入的管理口令不一致。',true);if(form.elements.password.value.length<12)return notice('管理口令至少需要 12 个字符。',true);if(await startTask('admin-token',{password:form.elements.password.value}))form.reset()};
-function paintTask(job){presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed')$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation()}
+function paintTask(job){presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed')$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation();syncVersionPopover()}
 async function poll(){if(refreshing||!csrf)return;const epoch=authEpoch;refreshing=true;try{const job=await api('task');paintTask(job);if(job.result)renderResult(job);if(Date.now()-lastStatus>15000)await refreshStatus();if(epoch!==authEpoch)return;if(job.id&&job.state!=='running'&&finishedTask!==job.id){finishedTask=job.id;await Promise.all([loadConfig(),refreshStatus()])}if(epoch!==authEpoch)return;if($('advanced').open||consoleRunning)await pollConsole()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)refreshing=false}}
 $('refresh').onclick=async()=>{const epoch=authEpoch;await Promise.all([loadConfig(),refreshStatus(),poll()]);if(epoch!==authEpoch)return;notice('状态已刷新，未保存的表单已保留。')};$('refresh-files').onclick=loadConfig;
 async function loadSettings(){try{const settings=await api('settings');settingsSnapshot=settings;$('domains').textContent=settings.origins.length?'已允许访问：'+settings.origins.join('、'):'尚未添加域名，当前可通过 IP 访问。';$('proxy-help').textContent='宿主机反向代理目标：http://127.0.0.1:'+settings.port+'。Nginx 需保留原始 Host（含端口）：proxy_set_header Host $http_host;';renderPresentation()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
@@ -290,13 +323,14 @@ document.addEventListener('change',()=>renderPresentation());
 
 
 let panelUpdating=false,checkingUpdates=false,panelUpdateInfo=null,updateWatch=null;
+let versionPopoverOpen=false;
 function paintPanelUpdate(info){
     clearTimeout(updateWatch);panelUpdateInfo=info;const installed=info.installed||{};const latest=info.latest;
     $('panel-version').textContent=installed.version||'未知版本';
     $('check-updates').title='当前构建 '+(installed.build_id||'未记录').slice(0,8)+' · 点击检查更新';
     panelUpdating=info.progress?.state==='upgrading';
-    $('check-updates').disabled=panelUpdating;
-    $('panel-update').hidden=false;$('panel-update').className='panel-update';
+    $('check-updates').disabled=false;
+    $('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update';
     $('update-dot').hidden=!info.available;$('upgrade-panel').hidden=!info.available||panelUpdating;
     $('upgrade-panel').disabled=taskRunning||consoleRunning||panelUpdating;
     $('upgrade-panel').title=taskRunning||consoleRunning?'请先完成当前任务或结束高级控制台':'';
@@ -306,21 +340,58 @@ function paintPanelUpdate(info){
     else if(info.available&&latest){$('panel-update').classList.add('available');$('update-message').textContent='可升级到 '+latest.version+' · 构建 '+latest.build_id.slice(0,8)}
     else{$('update-message').textContent='已是最新构建 · 点击版本号可重新检查'}
     if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}
-    renderPresentation();
+    syncVersionPopover();renderPresentation();
 }
 async function checkPanelUpdates(force=false){
-    if(!csrf||checkingUpdates)return;const epoch=authEpoch;checkingUpdates=true;$('check-updates').disabled=true;
+    if(!csrf||checkingUpdates)return;const epoch=authEpoch;checkingUpdates=true;syncVersionPopover();
     try{
-        const response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});
+        let response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});
         if(epoch!==authEpoch)throw sessionChanged();
-        if(response.status===401){if(panelUpdating){location.reload();return}expireSession();return}
+        if(response.status===401){if(panelUpdating){location.reload();return}const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();if(!valid){expireSession();return}response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});if(epoch!==authEpoch)throw sessionChanged();if(response.status===401)throw Error('更新检查暂不可用，请稍后重试。')}
         const info=await response.json();if(epoch!==authEpoch)throw sessionChanged();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');paintPanelUpdate(info);
-    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;$('panel-update').hidden=false;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
-    finally{if(epoch===authEpoch){checkingUpdates=false;$('check-updates').disabled=panelUpdating}}
+    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;$('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
+    finally{if(epoch===authEpoch){checkingUpdates=false;$('check-updates').disabled=false;syncVersionPopover()}}
 }
-$('check-updates').onclick=()=>checkPanelUpdates(true);
+function positionVersionPopover(){
+    if(!versionPopoverOpen)return;
+    const popup=$('panel-update'),anchor=$('check-updates').getBoundingClientRect(),box=popup.getBoundingClientRect();
+    const left=Math.max(16,Math.min(anchor.left,innerWidth-box.width-16));
+    let top=anchor.top-box.height-10;if(top<16)top=anchor.bottom+10;
+    top=Math.max(16,Math.min(top,innerHeight-box.height-16));
+    popup.style.left=left+'px';popup.style.top=top+'px';
+}
+function setVersionPopover(open,focusBack=false){
+    versionPopoverOpen=open;$('panel-update').hidden=!open;
+    $('check-updates').setAttribute('aria-expanded',String(open));document.body.classList.toggle('version-popover-open',open);
+    if(open){syncVersionPopover();requestAnimationFrame(()=>{if(versionPopoverOpen){positionVersionPopover();$('panel-update').focus({preventScroll:true})}})}
+    else if(focusBack)$('check-updates').focus({preventScroll:true});
+}
+function syncVersionPopover(){
+    const info=panelUpdateInfo,latest=info?.latest,failed=info?.progress?.state==='failed'&&info?.available,error=info?.error||(!failed&&$('panel-update').classList.contains('error'));
+    $('popover-current').textContent='v'+(info?.installed?.version||'0.5.2');
+    $('popover-latest').textContent=checkingUpdates?'检查中…':latest&&!error?'v'+latest.version:error?'暂不可用':'等待检查';
+    $('refresh-updates').disabled=checkingUpdates||panelUpdating;$('refresh-updates').classList.toggle('is-checking',checkingUpdates);
+    $('refresh-updates').setAttribute('aria-busy',String(checkingUpdates));
+    const available=!!(info?.available&&!error),title=$('popover-status-title');
+    $('check-updates').classList.toggle('has-update',available);
+    title.textContent=panelUpdating?'正在更新面板':checkingUpdates?'正在检查更新':failed?'上次更新未完成':error?'暂时无法检查更新':available?'有新版本可用！':info?'已是最新版本':'检查面板更新';
+    if(panelUpdating)$('update-message').textContent='更新完成后需要重新登录，密码库服务保持运行。';
+    else if(failed)$('update-message').textContent=info.progress.error||'可重新检查后重试。';
+    else if(error)$('update-message').textContent=info?.error||'连接失败，请点击右上角刷新重试。';
+    else if(checkingUpdates)$('update-message').textContent='正在获取最新版本信息，请稍候。';
+    else if(!panelUpdating&&!error&&latest)$('update-message').textContent=available?(latest.version===info.installed.version?'包含新的修复，可立即更新。':'v'+latest.version):'当前面板无需更新。';
+    $('upgrade-panel').textContent=panelUpdating?'正在更新…':'↓ 立即更新';
+    $('upgrade-panel').disabled=checkingUpdates||panelUpdating||taskRunning||consoleRunning;
+    if(versionPopoverOpen)requestAnimationFrame(positionVersionPopover);
+}
+$('check-updates').onclick=()=>{setVersionPopover(!versionPopoverOpen);if(versionPopoverOpen&&!panelUpdating)checkPanelUpdates(true)};
+$('refresh-updates').onclick=()=>checkPanelUpdates(true);
+document.addEventListener('click',event=>{if(versionPopoverOpen&&!$('panel-update').contains(event.target)&&!$('check-updates').contains(event.target))setVersionPopover(false)});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&versionPopoverOpen){event.preventDefault();setVersionPopover(false,true)}});
+$('panel-update').addEventListener('focusout',event=>{if(versionPopoverOpen&&event.relatedTarget&&!$('panel-update').contains(event.relatedTarget)&&!$('check-updates').contains(event.relatedTarget))setVersionPopover(false)});
+addEventListener('resize',positionVersionPopover);addEventListener('scroll',positionVersionPopover,{capture:true,passive:true});
 $('upgrade-panel').onclick=async()=>{
-    if(!panelUpdateInfo?.available||!panelUpdateInfo.latest)return;
+    if(!panelUpdateInfo?.available||!panelUpdateInfo.latest||checkingUpdates||panelUpdating)return;
     if(taskRunning||consoleRunning)return notice('请先完成当前任务或结束高级控制台。',true);
     const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password]')).some(input=>input.value);
     const message=(hasInput?'页面还有未保存输入，重启后将丢失。\n':'')+'确认升级管理面板？升级会重启面板并要求重新登录；密码库与备份容器保持运行。';
