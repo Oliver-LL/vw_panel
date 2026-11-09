@@ -115,3 +115,12 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 @media(max-width:760px){.external-proxy-card>summary{padding:18px}.external-proxy-body{padding:0 18px 18px}.external-proxy-body .form-footer{flex-direction:column;align-items:stretch}.external-route-values{grid-template-columns:minmax(0,1fr)}.external-route-values button{justify-self:start}}
 
 .external-methods{display:flex;flex-wrap:wrap;gap:9px;margin:18px 0}.external-methods button{padding:10px 16px;font-size:12px}
+
+/* Operation feedback floats above the current page without shifting its layout. */
+#notice{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:12px;max-width:min(640px,calc(100vw - 32px));width:max-content;margin:0;padding:14px 16px;border:1px solid #d8eee5;border-radius:14px;background:#fff;box-shadow:0 12px 42px #24203e1c;color:#346b58;font-size:13px;line-height:1.6}
+#notice-message{min-width:0;overflow-wrap:anywhere;max-width:430px}.toast-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;flex-shrink:0;background:#e9f7f0;color:#25816c;font-weight:700}
+#notice.error{color:#a34255;border-color:#f0d2da}#notice.error .toast-icon{background:#fff0f2;color:#bf5369}#notice.info,#notice.loading{color:#615485;border-color:#e2dcf3}#notice.info .toast-icon{background:#f0edff;color:var(--accent)}
+#notice.loading .toast-icon{background:transparent;width:20px;height:20px;border:2px solid #e6dffc;border-top-color:var(--accent);animation:spin 1s linear infinite}
+.toast-detail{background:transparent;color:inherit;font-weight:600;white-space:nowrap;font-size:12px;padding:5px;border-radius:5px}.toast-detail:hover{background:#f5f2fa}.toast-close{background:transparent;color:#a49eae;font-size:20px;line-height:1;padding:4px;flex-shrink:0;border-radius:5px}
+@media(max-width:760px){#notice{top:14px;gap:8px;padding:12px;flex-wrap:wrap;width:calc(100vw - 28px);max-width:500px}#notice-message{flex:1;max-width:none}.toast-detail{margin-left:31px;order:4}.toast-close{margin-left:auto}}
+@media(prefers-reduced-motion:reduce){#notice.loading .toast-icon{animation:none}}

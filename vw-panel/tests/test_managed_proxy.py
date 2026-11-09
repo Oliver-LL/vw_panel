@@ -1,3 +1,4 @@
+from compose_test_utils import load_compose
 import contextlib
 import json
 from pathlib import Path
@@ -33,7 +34,7 @@ class ManagedProxyTests(unittest.TestCase):
     def test_npm_creation_and_secret_roundtrip_without_public_leak(self):
         password='P$a\\s"s$$word!12345'
         folder=self.configure(NPM_ADMIN_PASSWORD=password)
-        compose=json.loads((folder/'docker-compose.yml').read_text())
+        compose=load_compose(folder/'docker-compose.yml')
         self.assertEqual(self.manager.npm_credentials()['password'],password)
         self.assertEqual(compose['services']['npm']['environment']['INITIAL_ADMIN_PASSWORD'],password.replace('$','$$'))
         self.assertNotIn(password,json.dumps(self.manager.config()))
@@ -53,7 +54,7 @@ class ManagedProxyTests(unittest.TestCase):
         folder=self.configure('nginx');active=(folder/'conf.d/site.conf').read_text()
         self.assertNotIn('listen 443',active)
         self.assertIn('proxy_set_header Upgrade',(folder/'desired.conf').read_text())
-        compose=json.loads((folder/'docker-compose.yml').read_text())
+        compose=load_compose(folder/'docker-compose.yml')
         self.assertEqual(compose['services']['certbot']['profiles'],['certificate'])
         self.assertIn('certbot renew',compose['services']['renew']['command'][0])
         self.manager.save('core',dict(self.data,mode='nginx',DOMAIN='https://changed.example.com'))

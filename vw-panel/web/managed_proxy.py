@@ -1,4 +1,5 @@
 """Install and configure panel-owned NPM or Nginx proxies without a shell console."""
+from compose_yaml import compose_yaml
 import datetime
 import json
 from pathlib import Path
@@ -175,7 +176,7 @@ class ManagedProxyMixin:
             if not existing:files['conf.d/site.conf'] = bootstrap_nginx(domain)
         if not existing:ensure_proxy_ports(kind, folder, settings.get('admin_port'))
         files['settings.json'] = json.dumps(settings, sort_keys=True)
-        files['docker-compose.yml'] = json.dumps({'services': services, 'networks': {network: {'external': True}}}, indent=2)
+        files['docker-compose.yml'] = compose_yaml({'services': services, 'networks': {network: {'external': True}}})
         return folder, files
 
     def write_proxy_plan(self, plan):

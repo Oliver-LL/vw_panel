@@ -1,3 +1,4 @@
+from compose_test_utils import load_compose
 import errno
 import contextlib
 import json
@@ -106,8 +107,8 @@ class ProxyConfigTests(unittest.TestCase):
         self.assertFalse((self.root/'deployment').exists());self.assertFalse(self.manager.memory.exists())
         with patch('manager.existing_network', return_value='npm_default'):
             self.manager.save('core', self.data)
-        compose = json.loads((self.root/'deployment/vaultwarden/docker-compose.yml').read_text())
-        self.assertEqual(compose['services']['vaultwarden']['networks'], ['npm_default'])
+        compose = load_compose(self.root/'deployment/vaultwarden/docker-compose.yml')
+        self.assertEqual(list(compose['services']['vaultwarden']['networks']), ['npm_default'])
         self.assertNotIn('ports', compose['services']['vaultwarden'])
         self.assertEqual(read_vars(self.manager.memory)['PROXY_MODE'], 'docker_ext')
 

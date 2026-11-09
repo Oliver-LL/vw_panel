@@ -1,4 +1,5 @@
 """Form based configuration and bounded, non-interactive Docker tasks."""
+from compose_yaml import compose_yaml
 import base64
 import configparser
 import contextlib
@@ -290,7 +291,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                     'container_name': 'vaultwarden-backup', 'restart': 'unless-stopped',
                     'env_file': ['./backup.env'], 'volumes': ['../vaultwarden/data:/bitwarden/data:ro',
                     './backups:/bitwarden/backup', './vw-backup-config:/config']}}}
-                write_private(backup / 'docker-compose.yml', json.dumps(compose, indent=2))
+                write_private(backup / 'docker-compose.yml', compose_yaml(compose))
             update_vars(backup / 'backup.env', updates)
         else:
             raise ValueError('未知配置页面。')
@@ -362,7 +363,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 if caddy.exists() and any(caddy.iterdir()):
                     raise ValueError('Caddy 目录已存在，请先确认配置。')
             (app / 'data').mkdir(parents=True, exist_ok=True)
-            write_private(app / 'docker-compose.yml', json.dumps(compose, indent=2))
+            write_private(app / 'docker-compose.yml', compose_yaml(compose))
             if mode == 'caddy':
                 caddy = Path(directory) / 'caddy'
                 if caddy.exists() and any(caddy.iterdir()):
@@ -371,7 +372,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                     'restart': 'unless-stopped', 'ports': ['80:80', '443:443'], 'networks': [network],
                     'volumes': ['./Caddyfile:/etc/caddy/Caddyfile:ro', './data:/data', './config:/config']}},
                     'networks': {network: {'external': True}}}
-                write_private(caddy / 'docker-compose.yml', json.dumps(proxy, indent=2))
+                write_private(caddy / 'docker-compose.yml', compose_yaml(proxy))
                 write_private(caddy / 'Caddyfile', p.netloc + ' {\n reverse_proxy vaultwarden:80\n}\n')
                 memory.update(CADDY_DIR=str(caddy), CADDY_EXISTS='false')
             if proxy_plan:
