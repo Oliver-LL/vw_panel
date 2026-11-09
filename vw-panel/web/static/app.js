@@ -329,8 +329,7 @@ function paintPanelUpdate(info){
     $('panel-version').textContent=installed.version||'未知版本';
     $('check-updates').title='当前构建 '+(installed.build_id||'未记录').slice(0,8)+' · 点击检查更新';
     panelUpdating=info.progress?.state==='upgrading';
-    $('check-updates').disabled=false;
-    $('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update';
+    $('panel-update').className='panel-update';
     $('update-dot').hidden=!info.available;$('upgrade-panel').hidden=!info.available||panelUpdating;
     $('upgrade-panel').disabled=taskRunning||consoleRunning||panelUpdating;
     $('upgrade-panel').title=taskRunning||consoleRunning?'请先完成当前任务或结束高级控制台':'';
@@ -353,8 +352,8 @@ async function checkPanelUpdates(force=false){
         if(epoch!==authEpoch)throw sessionChanged();
         if(response.status===401){if(panelUpdating){location.reload();return}const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();if(!valid){expireSession();return}response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin',signal:controller.signal});if(epoch!==authEpoch)throw sessionChanged();if(response.status===401)throw Error('更新检查暂不可用，请稍后重试。')}
         const info=await response.json();if(epoch!==authEpoch)throw sessionChanged();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');paintPanelUpdate(info);
-    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;updateCheckError=timedOut?'检查超时，请点击右上角刷新重试。':'连接失败，请点击右上角刷新重试。';$('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
-    finally{clearTimeout(timeout);parentSignal.removeEventListener('abort',cancel);if(epoch===authEpoch){checkingUpdates=false;$('check-updates').disabled=false;syncVersionPopover()}}
+    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;updateCheckError=timedOut?'检查超时，请点击右上角刷新重试。':'连接失败，请点击右上角刷新重试。';$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
+    finally{clearTimeout(timeout);parentSignal.removeEventListener('abort',cancel);if(epoch===authEpoch){checkingUpdates=false;syncVersionPopover()}}
 }
 function positionVersionPopover(){
     if(!versionPopoverOpen)return;
@@ -365,9 +364,9 @@ function positionVersionPopover(){
     popup.style.left=left+'px';popup.style.top=top+'px';
 }
 function setVersionPopover(open,focusBack=false){
-    versionPopoverOpen=open;$('panel-update').hidden=!open;
-    $('check-updates').setAttribute('aria-expanded',String(open));document.body.classList.toggle('version-popover-open',open);
-    if(open){syncVersionPopover();requestAnimationFrame(()=>{if(versionPopoverOpen){positionVersionPopover();$('panel-update').focus({preventScroll:true})}})}
+    versionPopoverOpen=open;$('version-menu').open=open;
+    document.body.classList.toggle('version-popover-open',open);
+    if(open){syncVersionPopover();requestAnimationFrame(positionVersionPopover)}
     else if(focusBack)$('check-updates').focus({preventScroll:true});
 }
 function syncVersionPopover(){
@@ -389,11 +388,10 @@ function syncVersionPopover(){
     $('upgrade-panel').disabled=checkingUpdates||panelUpdating||taskRunning||consoleRunning;
     if(versionPopoverOpen)requestAnimationFrame(positionVersionPopover);
 }
-$('check-updates').onclick=()=>{setVersionPopover(!versionPopoverOpen);if(versionPopoverOpen&&!panelUpdating)checkPanelUpdates(true)};
+$('version-menu').addEventListener('toggle',()=>{const open=$('version-menu').open;if(open===versionPopoverOpen)return;setVersionPopover(open);if(open&&!panelUpdating)checkPanelUpdates(true)});
 $('refresh-updates').onclick=()=>checkPanelUpdates(true);
 document.addEventListener('click',event=>{if(versionPopoverOpen&&!$('panel-update').contains(event.target)&&!$('check-updates').contains(event.target))setVersionPopover(false)});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&versionPopoverOpen){event.preventDefault();setVersionPopover(false,true)}});
-$('panel-update').addEventListener('focusout',event=>{if(versionPopoverOpen&&event.relatedTarget&&!$('panel-update').contains(event.relatedTarget)&&!$('check-updates').contains(event.relatedTarget))setVersionPopover(false)});
 addEventListener('resize',positionVersionPopover);addEventListener('scroll',positionVersionPopover,{capture:true,passive:true});
 $('upgrade-panel').onclick=async()=>{
     if(!panelUpdateInfo?.available||!panelUpdateInfo.latest||checkingUpdates||panelUpdating)return;
