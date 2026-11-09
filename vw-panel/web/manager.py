@@ -300,6 +300,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
     def save_core(self, data, app):
         current = self.config()
         domain = text(data.get('DOMAIN', ''), '密码库地址')
+        if domain and '://' not in domain:
+            domain = 'https:' + domain if domain.startswith('//') else 'https://' + domain
         p = urlsplit(domain)
         if p.scheme != 'https' or not p.hostname or p.path not in ('', '/') or p.query or p.fragment or p.username or p.password:
             raise ValueError('请输入完整的 HTTPS 密码库域名，不带路径。')

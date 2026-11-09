@@ -61,6 +61,15 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(read_vars(env)['RCLONE_REMOTE_DIR'], '/private')
         self.assertEqual(read_vars(env)['ZIP_PASSWORD'], data['ZIP_PASSWORD'])
 
+    def test_bare_vault_domain_normalized_and_validation_preserved(self):
+        env=self.deploy/'vaultwarden'/'vaultwarden.env'
+        for value,expected in [('vwp.777545.xyz','https://vwp.777545.xyz'),(' vault.example.com:8443/ ','https://vault.example.com:8443'),('https://vault.example.com','https://vault.example.com'),('//vault.example.com','https://vault.example.com')]:
+            self.manager.save('core',dict(self.data,DOMAIN=value))
+            self.assertEqual(read_vars(env)['DOMAIN'],expected)
+        for value in ['', 'http://vault.example.com', 'vault.example.com/path', 'vault.example.com?x=1', 'user:pass@vault.example.com', 'vault.example.com:99999', 'vault.example.com#fragment']:
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                self.manager.save('core',dict(self.data,DOMAIN=value))
+
     def test_reject_invalid_values_and_existing_data(self):
         for changes in [dict(directory='/'), dict(directory='/opt/../etc'), dict(DOMAIN='https://bad.com\nrun'),
                         dict(network='x; touch /tmp/evil'), dict(port='90000')]:

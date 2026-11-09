@@ -107,3 +107,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.7.2 顶部服务操作
 
 服务设置页顶部直接显示启用／应用、升级、停止／暂停和卸载四个按钮，无需展开维护分组。立即备份位于“备份文件与恢复”的文件列表旁。
+
+## 0.7.3 域名输入优化
+
+密码库地址可直接填写域名（例如 vault.example.com），自动补全为 HTTPS 地址。已有完整 HTTPS 地址保持不变；域名仍须解析到服务器。
