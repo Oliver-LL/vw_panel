@@ -1,4 +1,4 @@
-# Vaultwarden 网页管理面板 0.7.12
+# Vaultwarden 网页管理面板 0.7.14
 
 面向日常管理的表单面板：填写配置、点击部署、查看任务结果。常用功能不再要求输入脚本菜单编号。配置页面按组点击展开，默认只展开主要配置；收起时显示简短状态，未保存的表单值会保留，校验错误会自动展开对应分组。
 
@@ -44,7 +44,8 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 - 数据恢复：上传/下载 zip、7z，本机恢复、远程备份浏览下载、数据库校验、保留旧数据与失败回滚。兼容原备份镜像的 db.日期.sqlite3、config.日期.json 和嵌套 tar。仅支持原脚本默认的 SQLite 部署。
 - 诊断：访问信息、系统状态、环境体检、备份远程投递检查和反代日志；日志支持定时刷新。
 - 卸载清理：选择主服务/备份/全部，默认保留配置与数据；永久删除需勾选并输入 DELETE。恢复需输入 RESTORE。
-- WebDAV：填写地址、账号、应用密码和目录，验证连接后切换目标。会创建远程目录；不搬迁或删除原备份。
+- 远程存储：R2、S3 兼容（AWS/MinIO/B2/Wasabi）、WebDAV、SFTP、FTP 和本机目录使用统一的预设表单，保存时校验、验证连接、失败回滚，可加入备份目标；备份设置中保留 WebDAV 快捷入口。
+- 更多存储：OAuth 云盘（Google Drive、OneDrive、Dropbox 等）和未收录类型使用 Rclone 向导。
 - 任务：部署、停止、升级、备份、日志读取与失败原因。任务按钮调用独立后端接口，不自动回答 Bash 菜单。
 - 面板设置：HTTPS 域名白名单及折叠的高级工具。
 
@@ -52,7 +53,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 
 已有部署从 `~/.vw_deploy.conf` 读取目录与代理方式，不执行该文件。保存表单保留未修改的环境项、远程配置与其他配置键；修改环境文件前保留一份 `.panel-backup`。现有安装目录和代理拓扑不会通过表单重新生成。现有独立 Caddy 配置或带 VW_MANAGED 标记的站点可以在网页修改域名并同步配置；无法识别的共享站点拒绝覆盖。
 
-新建备份默认在本机保存加密归档。已有远程目标在修改备份计划时保持原样。本机副本不能抵御服务器损坏；可连接 WebDAV 远程存储。远程存储页面使用 Rclone 官方非交互配置协议逐项生成表单，支持加载全部存储类型、重新配置/授权、验证连接、查询容量与身份、脱敏配置展示、删除配置和多目标目录。OAuth 仍需按服务商要求完成外部授权；向导会显示服务商提供的步骤，部分服务商可能要求在有浏览器的设备上取得授权结果，再回填隐藏输入。不会将令牌写入任务日志。
+新建备份默认在本机保存加密归档。已有远程目标在修改备份计划时保持原样。本机副本不能抵御服务器损坏；可连接 WebDAV 远程存储。远程存储页提供数据驱动的存储预设：Cloudflare R2、S3 兼容对象存储（AWS、MinIO、Backblaze B2、Wasabi 等）、WebDAV、SFTP、FTP 和本机目录共用一套动态表单，统一处理字段校验、R2 endpoint 派生、密码隐藏、连接验证、失败回滚和备份目标更新。R2/S3 保存前为只读验证，建议保存后执行一次“立即备份”确认写入权限；WebDAV/SFTP/FTP 会创建并读取目标目录。OAuth 云盘（Google Drive、OneDrive、Dropbox 等）与未收录的 Rclone 类型继续使用通用向导；向导会显示服务商提供的步骤，部分服务商可能要求在有浏览器的设备上取得授权结果，再回填隐藏输入，不会将令牌写入任务日志。验证失败时会显示脱敏后的 rclone 错误，便于区分凭据、Endpoint、目录权限和网络问题。
 
 ## 服务环境配置
 
@@ -128,7 +129,8 @@ sudo vwp domain https://panel.example.com
 - `web/static/`：原生 HTML、CSS、JavaScript。
 - `web/server.py`：登录、会话、CSRF、HTTP 接口与旧控制台。
 - `web/manager.py`：配置读取、校验、保留式写入、Docker 任务和锁。
-- `web/operations.py`：完整运行参数、通知、多目标、Rclone 表单向导、诊断、恢复和服务卸载。
+- `web/operations.py`：完整运行参数、通知、多目标、Rclone 表单向导与预设保存、诊断、恢复和服务卸载。
+- `web/storage_presets.py`：存储预设目录（R2/S3/WebDAV/SFTP/FTP/本机）、字段校验、配置生成、目标目录和验证命令。
 - `panel-cli.sh`：终端菜单、原始脚本入口和面板卸载。
 - `web/tty_worker.py`：高级控制台 TTY。
 - `installer-header.sh`：系统安装逻辑。

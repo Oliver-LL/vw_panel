@@ -61,6 +61,38 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(read_vars(env)['RCLONE_REMOTE_DIR'], '/private')
         self.assertEqual(read_vars(env)['ZIP_PASSWORD'], data['ZIP_PASSWORD'])
 
+    def test_initial_backup_save_keeps_existing_remote_config_and_target(self):
+        self.configured()
+        backup = self.deploy / 'vaultwarden-backup'
+        config = backup / 'vw-backup-config/rclone/rclone.conf'
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('[R2Backup]\ntype = s3\nprovider = Cloudflare\nendpoint = https://%s.r2.cloudflarestorage.com\n' % ('a' * 32))
+        env = backup / 'backup.env'
+        env.write_text("RCLONE_REMOTE_NAME='R2Backup'\nRCLONE_REMOTE_DIR='/vw-backup/VaultBackup'\n")
+        self.manager.save('backup', dict(CRON='0 3 * * *', BACKUP_KEEP_DAYS='30', TIMEZONE='Asia/Shanghai', ZIP_PASSWORD='BackupPassword123!'))
+        text = config.read_text()
+        self.assertIn('[R2Backup]', text)
+        self.assertIn('provider = Cloudflare', text)
+        self.assertIn('[BitwardenBackup]', text)
+        self.assertIn('type = local', text)
+        values = read_vars(env)
+        self.assertEqual(values['RCLONE_REMOTE_NAME'], 'R2Backup')
+        self.assertEqual(values['RCLONE_REMOTE_DIR'], '/vw-backup/VaultBackup')
+
+    def test_initial_backup_save_avoids_local_name_collision_with_remote(self):
+        self.configured()
+        backup = self.deploy / 'vaultwarden-backup'
+        config = backup / 'vw-backup-config/rclone/rclone.conf'
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('[BitwardenBackup]\ntype = s3\nprovider = Cloudflare\nendpoint = https://%s.r2.cloudflarestorage.com\n' % ('b' * 32))
+        self.manager.save('backup', dict(CRON='0 3 * * *', BACKUP_KEEP_DAYS='30', TIMEZONE='Asia/Shanghai', ZIP_PASSWORD='BackupPassword123!'))
+        text = config.read_text()
+        self.assertIn('[BitwardenBackup]\ntype = s3', text)
+        self.assertIn('[PanelLocal]\ntype = local', text)
+        values = read_vars(backup / 'backup.env')
+        self.assertEqual(values['RCLONE_REMOTE_NAME'], 'PanelLocal')
+        self.assertEqual(values['RCLONE_REMOTE_DIR'], '/bitwarden/backup/archive')
+
     def test_bare_vault_domain_normalized_and_validation_preserved(self):
         env=self.deploy/'vaultwarden'/'vaultwarden.env'
         for value,expected in [('vwp.777545.xyz','https://vwp.777545.xyz'),(' vault.example.com:8443/ ','https://vault.example.com:8443'),('https://vault.example.com','https://vault.example.com'),('//vault.example.com','https://vault.example.com')]:

@@ -1,5 +1,18 @@
 # 更新日志
 
+## 0.7.14
+
+- 远程存储改为数据驱动的存储预设：Cloudflare R2、S3 兼容对象存储（AWS、MinIO、B2、Wasabi 等）、WebDAV、SFTP、FTP 和本机目录共用一套动态表单。
+- 预设统一处理字段校验、默认值、R2 endpoint 派生、密码 obscure、只读/目录验证、并发检查、失败回滚和备份目标更新。
+- OAuth 云盘（Google Drive、OneDrive、Dropbox 等）与未收录的 Rclone 类型继续使用通用向导；保留 remote-r2-save 兼容入口。
+
+## 0.7.13
+
+- 新增 Cloudflare R2 专用表单：Account ID、Access Key ID、Secret Access Key、Bucket 与桶内路径，自动生成 R2 endpoint。
+- 保存前用 rclone 只读列表验证连接；失败时显示脱敏后的 rclone 错误，不再只返回“操作失败”。
+- 支持对象级 Token（no_check_bucket，默认开启）、默认 / EU / FedRAMP 数据区域、重新配置时留空保留密钥，以及保存后加入或更新备份目标。
+- 远程名称允许点号，与脚本已有的 Rclone 配置命名兼容。
+
 ## 0.7.12
 
 - 备份目标与保存目录移至备份设置，显示两个变量的明确字段标题。

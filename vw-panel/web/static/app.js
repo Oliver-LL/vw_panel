@@ -84,9 +84,10 @@ function trackTask(job){if(job?.id)trackedTask={id:job.id,action:job.action}}
 function taskOutcome(job){
     if(!trackedTask||trackedTask.id!==job.id||job.state==='running')return;
     const action=trackedTask.action||job.action;trackedTask=null;
-    if(job.state==='failed'){notice((job.error||'操作失败，请查看执行详情。'),true,{detail:true});return}
+    if(job.state==='failed'){if(action==='remote-preset-save')presetSubmitted=null;notice((job.error||'操作失败，请查看执行详情。'),true,{detail:true});return}
+    if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form');if(form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');presetTouched=false}presetSubmitted=null}
     if(job.state!=='success'||['logs','backup-logs','proxy-logs'].includes(action)||job.result?.question)return;
-    const messages={deploy:'主服务已启动，配置已应用',upgrade:'主服务升级成功','backup-start':'备份服务已启动，配置已应用','backup-stop':'自动备份已暂停','backup-now':'备份任务已完成','upgrade-backup':'备份服务升级成功',stop:'主服务已停止','admin-token':'管理口令已加密保存','remote-save':'WebDAV 连接已保存','existing-npm':'NPM 站点与 HTTPS 已配置','remove-services':'服务卸载成功',restore:'备份恢复成功'};
+    const messages={deploy:'主服务已启动，配置已应用',upgrade:'主服务升级成功','backup-start':'备份服务已启动，配置已应用','backup-stop':'自动备份已暂停','backup-now':'备份任务已完成','upgrade-backup':'备份服务升级成功',stop:'主服务已停止','admin-token':'管理口令已加密保存','remote-save':'WebDAV 连接已保存','remote-r2-save':'Cloudflare R2 存储已保存（只读验证通过）','remote-preset-save':'云存储配置已保存','existing-npm':'NPM 站点与 HTTPS 已配置','remove-services':'服务卸载成功',restore:'备份恢复成功'};
     notice(messages[action]||'操作成功');
 }
 
@@ -170,7 +171,7 @@ $('login-form').onsubmit=async event=>{
     finally{if(epoch===authEpoch){button.disabled=false;button.textContent='登录管理中心 →'}}
 };
 $('logout').onclick=async()=>{try{await api('logout',{});showLogin()}catch(error){if(isSessionTransition(error))return;notice(error.message,true)}};
-for(const id of ['core-form','permissions-form','mail-form','backup-form','remote-form','advanced-form','push-form','notifications-form','targets-form']){$(id).addEventListener('input',()=>dirty.add(id));$(id).addEventListener('change',()=>dirty.add(id))}
+for(const id of ['core-form','permissions-form','mail-form','backup-form','remote-form','preset-form','advanced-form','push-form','notifications-form','targets-form']){const form=$(id);if(!form)continue;form.addEventListener('input',()=>dirty.add(id));form.addEventListener('change',()=>dirty.add(id))}
 function fill(id,values){if(dirty.has(id))return;const form=$(id);for(const [key,value]of Object.entries(values)){const field=form.elements.namedItem(key);if(!field)continue;if(field.type==='checkbox')field.checked=value===true||value==='true';else{if(field.tagName==='SELECT'&&value&&!Array.from(field.options).some(o=>o.value===value)){field.add(new Option('当前设置：'+value,value))}field.value=value}}}
 function formatSize(bytes){return bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':(bytes/1024).toFixed(1)+' KB'}
 function proxyContext(value){return value?JSON.stringify([value.configured,value.mode,value.network,value.proxy_target,value.proxy?.kind]):''}
@@ -436,8 +437,104 @@ $('input-form').onsubmit=async event=>{event.preventDefault();const field=$('ter
 
 // Native settings for every original service option.
 const extraDefaults={ENABLE_WEBSOCKET:true,LOGIN_RATELIMIT_MAX_BURST:'10',LOGIN_RATELIMIT_SECONDS:'60',WEB_VAULT_ENABLED:true,EMERGENCY_ACCESS_ALLOWED:true,ENABLE_DB_WAL:true,ADMIN_RATELIMIT_MAX_BURST:'5',ADMIN_RATELIMIT_SECONDS:'60',ADMIN_SESSION_LIFETIME:'20',TZ:'Asia/Shanghai'};
-let wizardId='',resultSeen='',lastLive=0,remoteBrowse={};
-function renderExtras(config){const extra=config.extras;if(!extra)return;renderEnvironmentEditors(extra.environment);fill('advanced-form',{...extraDefaults,...Object.fromEntries(Object.entries(extra.advanced).filter(([,v])=>v!==''))});fill('push-form',extra.push);fill('notifications-form',{MAIL_SMTP_ENABLE:false,MAIL_WHEN_SUCCESS:false,MAIL_WHEN_FAILURE:true,MAIL_FORCE_THREAD:false,...extra.notifications,...extra.notification_smtp});const box=$('remote-list');box.replaceChildren();if(!extra.remotes.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='还没有配置存储。下方可以新增，也可以在备份页面快速连接 WebDAV。';box.append(empty)}for(const remote of extra.remotes){const row=document.createElement('article');row.className='remote-row';const heading=document.createElement('div');heading.className='remote-row-head';const strong=document.createElement('strong');strong.textContent=remote.name;const badge=document.createElement('span');badge.className='badge';badge.textContent=remote.type;heading.append(strong,badge);row.append(heading);const toolbar=document.createElement('div');toolbar.className='button-row';for(const [action,label]of [['remote-check','验证连接'],['remote-about','容量与身份'],['reauthorize','重新配置 / 授权'],['remote-delete','删除配置']]){const button=document.createElement('button');button.className='secondary';button.textContent=label;button.onclick=async()=>{if(action==='reauthorize'){const form=$('wizard-start-form');form.elements.name.value=remote.name;if(!Array.from(form.elements.type.options).some(o=>o.value===remote.type))form.elements.type.add(new Option(remote.type,remote.type));form.elements.type.value=remote.type;revealGroup(form);form.scrollIntoView({behavior:'smooth'});return}let confirmation='';if(action==='remote-delete'){confirmation=await promptDialog('将删除远程存储配置 '+remote.name+'，远端文件会保留。',{title:'删除远程存储配置',accept:'删除配置',danger:true,inputLabel:'输入 DELETE 确认',expected:'DELETE',placeholder:'DELETE'})||'';if(confirmation!=='DELETE')return}const target=extra.targets.find(v=>v.name===remote.name);startTask(action,{name:remote.name,directory:target?target.directory:'/VaultBackup',confirmation})};toolbar.append(button)}row.append(toolbar);const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='查看脱敏配置';pre.textContent=JSON.stringify(remote.fields,null,2);details.append(summary,pre);row.append(details);box.append(row)}if(!dirty.has('targets-form')){$('target-rows').replaceChildren();for(const target of extra.targets)addTarget(target);if(!extra.targets.length)addTarget()}const select=$('remote-browse-form').elements.name,previous=select.value;select.replaceChildren();for(const remote of extra.remotes)select.add(new Option(remote.name+' · '+remote.type,remote.name));if(extra.remotes.some(r=>r.name===previous))select.value=previous;const restoreSelect=$('restore-form').elements.file,current=restoreSelect.value;restoreSelect.replaceChildren(new Option('选择一份备份',''));for(const file of config.files.filter(f=>/\.(zip|7z)$/i.test(f.name)))restoreSelect.add(new Option(file.name+' · '+formatSize(file.size),file.name));if(Array.from(restoreSelect.options).some(o=>o.value===current))restoreSelect.value=current;}
+let wizardId='',resultSeen='',lastLive=0,remoteBrowse={},presetSubmitted=null,presetTouched=false;
+function presetCatalog(){return cfg?.extras?.storage_presets||[]}
+function presetById(id){return presetCatalog().find(item=>item.id===id)}
+function presetForRemote(remote){
+    const type=String(remote.type||'').toLowerCase(),fields=remote.fields||{},provider=String(fields.provider||'').toLowerCase();
+    if(type==='s3'){
+        if(String(fields.env_auth||'').toLowerCase()==='true'||!fields.access_key_id)return '';
+        return provider==='cloudflare'?'r2':'s3';
+    }
+    if(type==='sftp'&&(fields.key_file||fields.key_pem||fields.key_use_agent))return '';
+    if(type==='webdav'&&fields.bearer_token)return '';
+    if(['webdav','sftp','ftp','local'].includes(type))return type;
+    return '';
+}
+function renderPresetFields(presetId,values={}){
+    const preset=presetById(presetId),box=$('preset-fields');if(!preset||!box)return;
+    $('preset-description').textContent=preset.description||'';
+    box.replaceChildren();
+    const grid=document.createElement('div');grid.className='form-grid';
+    const toggles=document.createElement('div');toggles.className='spaced';
+    for(const field of preset.fields){
+        const value=values[field.key]!==undefined?values[field.key]:field.default;
+        if(field.type==='checkbox'){
+            const label=document.createElement('label');label.className='toggle';
+            const copy=document.createElement('div'),strong=document.createElement('strong'),small=document.createElement('small');
+            strong.textContent=field.label;small.textContent=field.help||'';copy.append(strong,small);
+            const input=document.createElement('input');input.type='checkbox';input.name=field.key;input.role='switch';
+            input.checked=value===true||value==='true';
+            const span=document.createElement('span');span.className='switch';
+            label.append(copy,input,span);toggles.append(label);continue;
+        }
+        const label=document.createElement('label');label.className='field';
+        const span=document.createElement('span');span.textContent=field.label;
+        let input;
+        if(field.type==='select'){
+            input=document.createElement('select');
+            for(const option of field.options||[])input.add(new Option(option.label,option.value));
+            if(value!==undefined&&value!==null&&value!==''&&!Array.from(input.options).some(option=>option.value===value))input.add(new Option('当前设置：'+value,value));
+        }else{
+            input=document.createElement('input');
+            input.type=field.type==='password'?'password':field.type==='number'?'number':'text';
+            if(field.maxlength)input.maxLength=field.maxlength;
+            if(field.min!==undefined)input.min=field.min;
+            if(field.max!==undefined)input.max=field.max;
+            if(field.pattern)input.pattern=field.pattern;
+            if(field.placeholder)input.placeholder=field.placeholder;
+            if(field.type==='password')input.autocomplete='new-password';
+        }
+        input.name=field.key;
+        if(field.required)input.required=true;
+        if(value!==undefined&&value!==null)input.value=String(value);
+        if(field.pattern_message)input.title=field.pattern_message;
+        const small=document.createElement('small');small.textContent=field.help||'';
+        label.append(span,input,small);grid.append(label);
+    }
+    if(grid.children.length)box.append(grid);
+    if(toggles.children.length)box.append(toggles);
+}
+function initPresetForm(){
+    const form=$('preset-form');if(!form)return;
+    const select=form.elements.preset;if(!select||select.options.length)return;
+    for(const preset of presetCatalog())select.add(new Option(preset.label,preset.id));
+    if(select.options.length)select.value=select.options[0].value;
+    select.onchange=()=>renderPresetFields(select.value);
+    renderPresetFields(select.value);
+}
+async function prefillPresetForm(remote){
+    const presetId=presetForRemote(remote);if(!presetId)return false;
+    const form=$('preset-form');if(!form)return false;
+    if(presetTouched&&!await confirmDialog('常用存储表单里有未保存的内容，重新配置会覆盖。确认继续？',{title:'覆盖未保存的存储配置',accept:'继续预填'}))return true;
+    initPresetForm();
+    const select=form.elements.preset;if(!select||!Array.from(select.options).some(option=>option.value===presetId))return false;
+    select.value=presetId;
+    const fields=remote.fields||{},values={};
+    const target=(cfg?.extras?.targets||[]).find(item=>item.name===remote.name);
+    const remembered=String(remote.target||'');
+    const directory=String(target?.directory||remembered).replace(/^\/+/,'');
+    const parts=directory.split('/').filter(Boolean);
+    if(presetId==='r2'||presetId==='s3'){values.bucket=parts[0]||'';values.path=parts.slice(1).join('/')}
+    else if(directory)values.directory=String(target?.directory||remembered);
+    for(const key of ['provider','region','endpoint','url','vendor','user','host','port','tls'])if(fields[key]!==undefined)values[key]=fields[key];
+    if(presetId==='r2'){
+        const match=/^https:\/\/([a-f0-9]{32})(\.[a-z0-9-]+)?\.r2\.cloudflarestorage\.com\/?$/i.exec(String(fields.endpoint||'').trim());
+        if(match){values.account_id=match[1].toLowerCase();values.jurisdiction=(match[2]||'').replace(/^\./,'')}
+        values.no_check_bucket=String(fields.no_check_bucket||'').toLowerCase()==='true';
+    }else if(presetId==='s3')values.no_check_bucket=String(fields.no_check_bucket||'').toLowerCase()==='true';
+    form.elements.name.value=remote.name;
+    renderPresetFields(presetId,values);
+    form.elements.set_target.checked=!!target;
+    dirty.delete('preset-form');
+    presetTouched=false;
+    revealGroup(form);
+    $('preset-card')?.scrollIntoView({behavior:'smooth',block:'center'});
+    const first=form.querySelector('#preset-fields input:not([type=checkbox]),#preset-fields select');
+    if(first)first.focus();
+    return true;
+}
+function renderExtras(config){const extra=config.extras;if(!extra)return;renderEnvironmentEditors(extra.environment);fill('advanced-form',{...extraDefaults,...Object.fromEntries(Object.entries(extra.advanced).filter(([,v])=>v!==''))});fill('push-form',extra.push);fill('notifications-form',{MAIL_SMTP_ENABLE:false,MAIL_WHEN_SUCCESS:false,MAIL_WHEN_FAILURE:true,MAIL_FORCE_THREAD:false,...extra.notifications,...extra.notification_smtp});const box=$('remote-list');box.replaceChildren();if(!extra.remotes.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='还没有配置存储。下方可以新增，也可以在备份页面快速连接 WebDAV。';box.append(empty)}for(const remote of extra.remotes){const row=document.createElement('article');row.className='remote-row';const heading=document.createElement('div');heading.className='remote-row-head';const strong=document.createElement('strong');strong.textContent=remote.name;const badge=document.createElement('span');badge.className='badge';badge.textContent=remote.type;heading.append(strong,badge);row.append(heading);const toolbar=document.createElement('div');toolbar.className='button-row';for(const [action,label]of [['remote-check','验证连接'],['remote-about','容量与身份'],['reauthorize','重新配置 / 授权'],['remote-delete','删除配置']]){const button=document.createElement('button');button.className='secondary';button.textContent=label;button.onclick=async()=>{if(action==='reauthorize'){if(await prefillPresetForm(remote))return;const form=$('wizard-start-form');form.elements.name.value=remote.name;if(!Array.from(form.elements.type.options).some(o=>o.value===remote.type))form.elements.type.add(new Option(remote.type,remote.type));form.elements.type.value=remote.type;revealGroup(form);form.scrollIntoView({behavior:'smooth'});return}let confirmation='';if(action==='remote-delete'){confirmation=await promptDialog('将删除远程存储配置 '+remote.name+'，远端文件会保留。',{title:'删除远程存储配置',accept:'删除配置',danger:true,inputLabel:'输入 DELETE 确认',expected:'DELETE',placeholder:'DELETE'})||'';if(confirmation!=='DELETE')return}const target=extra.targets.find(v=>v.name===remote.name);startTask(action,{name:remote.name,directory:target?target.directory:'/VaultBackup',confirmation})};toolbar.append(button)}row.append(toolbar);const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='查看脱敏配置';pre.textContent=JSON.stringify(remote.fields,null,2);details.append(summary,pre);row.append(details);box.append(row)}if(!dirty.has('targets-form')){$('target-rows').replaceChildren();for(const target of extra.targets)addTarget(target);if(!extra.targets.length)addTarget()}const select=$('remote-browse-form').elements.name,previous=select.value;select.replaceChildren();for(const remote of extra.remotes)select.add(new Option(remote.name+' · '+remote.type,remote.name));if(extra.remotes.some(r=>r.name===previous))select.value=previous;const restoreSelect=$('restore-form').elements.file,current=restoreSelect.value;restoreSelect.replaceChildren(new Option('选择一份备份',''));for(const file of config.files.filter(f=>/\.(zip|7z)$/i.test(f.name)))restoreSelect.add(new Option(file.name+' · '+formatSize(file.size),file.name));if(Array.from(restoreSelect.options).some(o=>o.value===current))restoreSelect.value=current;initPresetForm();}
 for(const [id,section]of [['advanced-form','advanced'],['push-form','push'],['notifications-form','notifications']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget,button=form.querySelector('button[type=submit]');button.disabled=true;try{const result=await api('config/'+section,formValues(id));dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(i=>i.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
 function addTarget(target={}){
     const row=document.createElement('div');row.className='target-row';
@@ -449,13 +546,15 @@ function addTarget(target={}){
     const validate=()=>select.setCustomValidity(select.value&&!remotes.some(remote=>remote.name===select.value)?'未找到这个存储，请先恢复存储配置或重新选择。':'');validate();select.addEventListener('change',validate);
     const directory=document.createElement('input');directory.required=true;directory.value=target.directory||'';directory.placeholder='填写备份保存目录';directory.setAttribute('aria-label','保存目录 RCLONE_REMOTE_DIR');
     const remove=document.createElement('button');remove.type='button';remove.className='ghost danger-text';remove.textContent='移除';remove.onclick=()=>{row.remove();dirty.add('targets-form');renderPresentation()};
-    row.append(label('存储名称 · RCLONE_REMOTE_NAME','从已配置的 Rclone 存储中选择。',select),label('保存目录 · RCLONE_REMOTE_DIR','云盘例如 /VaultBackup；本机通常为 /bitwarden/backup/archive。',directory),remove);$('target-rows').append(row);
+    row.append(label('存储名称 · RCLONE_REMOTE_NAME','从已配置的 Rclone 存储中选择。',select),label('保存目录 · RCLONE_REMOTE_DIR','云盘例如 /VaultBackup；S3/R2 第一段为 Bucket；本机通常为 /bitwarden/backup/archive。',directory),remove);$('target-rows').append(row);
 }
 for(const link of document.querySelectorAll('[data-open-targets]'))link.onclick=event=>{event.preventDefault();location.hash='backup';revealGroup($('targets-form'));requestAnimationFrame(()=>$('targets-form').scrollIntoView({behavior:'smooth',block:'center'}))};
 $('add-target').onclick=()=>{addTarget();dirty.add('targets-form');renderPresentation()};$('targets-form').onsubmit=async event=>{event.preventDefault();const targets=Array.from($('target-rows').children).map(row=>({name:row.querySelector('select').value,directory:row.querySelector('input').value}));try{await api('config/targets',{targets});dirty.delete('targets-form');notice('备份目标已保存，请应用备份配置。');await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}};
 $('reload-remotes').onclick=loadConfig;$('load-providers').onclick=()=>startTask('remote-providers');
 $('wizard-start-form').onsubmit=async event=>{event.preventDefault();const values=formValues('wizard-start-form');if(cfg?.extras?.remotes.some(r=>r.name===values.name)&&!await confirmDialog('将重新配置 '+values.name+'，向导完成前不会修改原配置。',{title:'重新配置远程存储',accept:'开始配置'}))return;await startTask('remote-wizard',values)};
 $('wizard-question-form').onsubmit=async event=>{event.preventDefault();const value=$('wizard-answer').value;if(await startTask('remote-continue',{wizard_id:wizardId,answer:value}))$('wizard-answer').value=''};
+if($('preset-form'))$('preset-form').onsubmit=async event=>{event.preventDefault();const values=formValues('preset-form');presetSubmitted=JSON.stringify(values);if(!await startTask('remote-preset-save',values))presetSubmitted=null};
+if($('preset-form')){const markPresetDraft=event=>{if(event.target.name!=='preset')presetTouched=true};$('preset-form').addEventListener('input',markPresetDraft);$('preset-form').addEventListener('change',markPresetDraft)}
 function renderHelp(box,help){const regex=/https?:\/\/[^\s<>"']+/g;let index=0;for(const match of help.matchAll(regex)){box.append(document.createTextNode(help.slice(index,match.index)));const link=document.createElement('a');link.href=match[0];link.target='_blank';link.rel='noopener noreferrer';link.textContent=match[0];box.append(link);index=match.index+match[0].length}box.append(document.createTextNode(help.slice(index)))}
 function renderResult(job){if(resultSeen===job.id)return;resultSeen=job.id;const result=job.result;if(result.providers){const select=$('wizard-start-form').elements.type,old=select.value;select.replaceChildren();for(const p of result.providers)select.add(new Option(p.description+' ('+p.name+')',p.name));select.value=old;revealCurrentGroup($('wizard-start-form'));notice('全部存储类型已加载。')}if(result.question){wizardId=result.wizard_id;const option=result.question,box=$('wizard-question');box.replaceChildren();const title=document.createElement('label');title.className='question-label';title.htmlFor='wizard-answer';title.textContent=({client_id:'客户端 ID（通常可留空）',client_secret:'客户端密钥',config_token:'授权令牌',config_is_local:'使用服务器上的浏览器授权（远程服务器固定为否）',host:'服务器地址',user:'登录账号',pass:'登录密码',port:'端口',vendor:'服务商类型',scope:'授权范围',key_file:'私钥文件路径'})[option.Name]||option.Name;const help=document.createElement('div');help.className='question-help';renderHelp(help,option.Help||'');let input;if(option.Exclusive&&option.Examples?.length){input=document.createElement('select');for(const item of option.Examples)input.add(new Option(item.Help+' · '+item.Value,item.Value))}else{input=document.createElement('input');input.type=option.IsPassword||/token|secret|pass/i.test(option.Name)?'password':'text';input.maxLength=60000;if(option.Examples?.length){const hints=document.createElement('p');hints.className='muted';hints.textContent='可选值：'+option.Examples.map(v=>v.Value+' ('+v.Help+')').join('、');box.append(hints)}}input.id='wizard-answer';input.required=!!option.Required;input.value=option.Default===null?'':String(option.Default??'');if(option.Name==='config_is_local'){input.value='false';input.disabled=true}box.append(title,help,input);if(result.error){const error=document.createElement('p');error.textContent=result.error;error.className='danger-text';box.append(error)}$('wizard-question-form').hidden=false;revealCurrentGroup($('wizard-question-form'));notice('请按向导填写下一项。')}if(result.done){$('wizard-question-form').hidden=true;notice('存储配置已保存，可验证连接并添加为备份目标。')}if(result.remote_files){const box=$('remote-files');box.replaceChildren();for(const file of result.remote_files){const row=document.createElement('div');row.className='file-row';const name=document.createElement('strong');name.textContent=file.name;const size=document.createElement('span');size.textContent=formatSize(file.size);const date=document.createElement('span');date.textContent=file.modified;const button=document.createElement('button');button.className='ghost';button.textContent='下载到本机';button.onclick=()=>startTask('remote-download',{...remoteBrowse,file:file.name});row.append(name,size,date,button);box.append(row)}if(!result.remote_files.length)box.textContent='该目录没有 zip / 7z 备份。';}}
 $('remote-browse-form').onsubmit=async event=>{event.preventDefault();remoteBrowse=formValues('remote-browse-form');await startTask('remote-list',remoteBrowse)};
@@ -600,9 +699,10 @@ function updateGroupSummaries(){
         else if(title==='备份邮件通知')status=checked('MAIL_SMTP_ENABLE')?'已开启':'未开启';
         else if(title==='远程备份 · WebDAV')status=cfg?.remote?.type==='webdav'?'已配置':'按需连接';
         else if(title==='已配置的存储')status=(cfg?.extras?.remotes.length||0)+' 个存储';
+        else if(title==='常用存储预设')status='添加或重新配置';
+        else if(title==='更多存储类型（Rclone 向导）')status='OAuth 与长尾类型';
         else if(title==='备份目标与保存目录')status=(cfg?.extras?.targets.length||0)+' 个目标';
         else if(title==='本机备份文件')status=(cfg?.files.length||0)+' 份文件';
-        else if(title==='新增 / 重新配置存储')status='添加或重新授权';
         else if(title==='通过自己的域名访问面板')status=settingsSnapshot?.origins.length?settingsSnapshot.origins.length+' 个允许域名':'按需添加';
         else if(title==='从备份恢复')status='校验后恢复';
         else if(title==='卸载范围与数据')status=value('delete_data')==='delete'?'将删除数据':'保留数据';
@@ -723,6 +823,7 @@ function renderPresentation(){
     $('targets-guidance').textContent=!cfg.backup_configured?'先保存上方备份计划，再选择这里的存储名称和保存目录。':!targetRemotes.length?'尚未找到 Rclone 存储，请先通过下方入口新增或授权；完成后即可选择。':!$('target-rows').children.length?'至少添加一个备份目标，再保存。':'这里设置 RCLONE_REMOTE_NAME 与 RCLONE_REMOTE_DIR，可随时修改；不会被备份计划覆盖。';
     $('targets-guidance').hidden=!!(cfg.backup_configured&&targetRemotes.length&&$('target-rows').children.length);
     $('targets-form').querySelector('button[type=submit]').disabled=taskRunning||panelUpdating||!cfg.backup_configured||!targetRemotes.length||!$('target-rows').children.length;
+    const presetForm=$('preset-form');if(presetForm){const presetSubmit=presetForm.querySelector('button[type=submit]');if(presetSubmit)presetSubmit.disabled=taskRunning||panelUpdating;const presetTip=presetForm.elements.set_target.closest('.toggle').querySelector('small');if(presetTip)presetTip.textContent=!cfg?.backup_configured?'备份计划尚未保存；保存配置后可在备份设置中添加目标。':'加入 RCLONE_REMOTE_NAME 目标；不会删除其他目标。'}
 
     $('backup-service-status').textContent=backupUnknown?'状态未知':backupActive?'运行中':backup?'已暂停':cfg.backup_configured?'待启用':'未配置';
     $('backup-service-status').classList.toggle('is-running',!!backupActive&&!backupUnknown);
