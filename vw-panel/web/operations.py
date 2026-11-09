@@ -242,10 +242,33 @@ class OperationsMixin:
                 raise ValueError('请选择存储类型。')
             payload['type']=kind
         if action in ('remote-check','remote-list','remote-download'):
-            payload['directory']=text(data.get('directory','/VaultBackup'),'远程目录')
-            if '..' in Path(payload['directory']).parts:
-                raise ValueError('远程目录不正确。')
+            payload['directory']=self.remote_directory(payload['name'],data.get('directory',''))
         return payload
+
+    def remote_directory(self,name,requested=''):
+        from manager import read_vars,text
+        _,backup=self.paths();parser=parser_for(backup/'vw-backup-config/rclone/rclone.conf')
+        if name not in parser:raise ValueError('指定的存储不存在，请刷新后重新选择。')
+        directory=text(requested,'远程目录')
+        if not directory:
+            env=read_vars(backup/'backup.env')
+            for index in range(20):
+                suffix='' if index==0 else '_'+str(index)
+                if env.get('RCLONE_REMOTE_NAME'+suffix)==name:
+                    directory=env.get('RCLONE_REMOTE_DIR'+suffix,'');break
+            directory=directory or self.preset_targets().get(name,'')
+        is_s3=parser[name].get('type','').lower()=='s3'
+        if not directory:
+            if is_s3:raise ValueError('请填写 Bucket/目录，或先在备份设置中保存此存储的目标目录。')
+            directory='/bitwarden/backup/archive' if parser[name].get('type','')=='local' else '/'
+        if '..' in Path(directory).parts or any(ord(c)<32 for c in directory):raise ValueError('远程目录不正确。')
+        return directory.lstrip('/') if is_s3 else directory
+
+    def local_backup_mounts(self):
+        app,backup=self.paths();mounts=[]
+        for path,target in ((backup/'backups','/bitwarden/backup'),(app/'data','/bitwarden/data')):
+            if path.is_dir():mounts+=['-v',str(path)+':'+target+':ro']
+        return mounts
 
     def compose(self, folder, *args):
         return ['docker','compose','--project-directory',str(folder),'-f',str(folder/'docker-compose.yml'),*args]
@@ -290,12 +313,18 @@ class OperationsMixin:
         if data.pop(name,None) is not None:
             write_private(self.state/'storage-targets.json',json.dumps(data,ensure_ascii=False,indent=2)+'\n')
 
-    def rclone_probe(self,args,config_file,secrets=(),label='远程存储',hint=''):
+    def rclone_probe(self,args,config_file,secrets=(),label='远程存储',hint='',download_dir=None):
         # Trial against a candidate config; surface a redacted rclone error instead of a generic failure.
+        from environment import sensitive
+        secrets=list(secrets)
+        for section in parser_for(config_file).values():
+            secrets.extend(value for key,value in section.items() if sensitive(key.upper(),value) or key.lower()=='pass')
+        extra_mounts=self.local_backup_mounts()
+        if download_dir is not None:extra_mounts+=['-v',str(download_dir)+':/download']
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             try:
                 result=subprocess.run(['docker','run','--rm',
-                    '-v',str(config_file)+':/config/rclone/rclone.conf:ro',
+                    '-v',str(config_file)+':/config/rclone/rclone.conf:ro',*extra_mounts,
                     '--entrypoint','rclone','ttionya/vaultwarden-backup:latest',*args],
                     stdout=output,stderr=errors,timeout=300)
             except subprocess.TimeoutExpired:
@@ -318,6 +347,8 @@ class OperationsMixin:
                     summary='Access Key ID 无效，请检查账号和这组访问密钥是否已被撤销。'
                 elif 'AccessDenied' in message:
                     summary='访问被拒绝（403 AccessDenied），请检查目标 Bucket 和这组密钥的对象读写权限。'
+                elif re.search(r'directory not found|object not found|NoSuchKey',message,re.I):
+                    summary='备份目录尚不存在，请先执行一次备份，或检查保存目录。'
                 elif 'NoSuchBucket' in message:
                     summary='找不到 Bucket，请确认桶名、所属账号和 Endpoint。'
                 else:
@@ -425,21 +456,34 @@ class OperationsMixin:
                     self.emit(command+'：'+result)
                 except ValueError:self.emit(command+'：服务商不支持该查询或授权已失效。')
             return
-        target=name+':'+data['directory'].rstrip('/')
+        directory=self.remote_directory(name,data.get('directory',''))
+        target=name+':'+directory.rstrip('/')
         if action=='remote-check':
-            self.rclone(['mkdir',target]);self.rclone(['lsd',target]);self.emit('远程目录可写且可读取。');return
+            if parser[name].get('type','')=='s3':target=name+':'+directory.split('/',1)[0]
+            self.rclone_probe(['lsf',target,'--max-depth','1'],remote_file,label='存储')
+            self.emit('存储可读取；本次验证未写入文件。');return
         if action=='remote-list':
-            raw=self.rclone(['lsjson',target,'--files-only','--max-depth','1'])
-            rows=json.loads(raw)
-            self.job['result']={'remote_files':[{'name':r['Path'],'size':r['Size'],'modified':r.get('ModTime','')} for r in rows if r['Path'].lower().endswith(('.zip','.7z'))][:200]};return
+            raw=self.rclone_probe(['lsjson',target,'--files-only','--max-depth','1'],remote_file,label='读取备份')
+            try:
+                rows=json.loads(raw)
+                if not isinstance(rows,list):raise ValueError()
+                files=[]
+                for row in rows:
+                    path=row.get('Path','')
+                    if row.get('IsDir') or not path.lower().endswith(('.zip','.7z')):continue
+                    safe_relative(path)
+                    files.append({'name':path,'size':row['Size'],'modified':row.get('ModTime','')})
+            except (ValueError,KeyError,TypeError,AttributeError):raise ValueError('存储返回的文件列表无法识别，请查看任务详情。')
+            self.job['result']={'remote_files':files[:200],'remote_location':{'name':name,'directory':directory}};return
         if action=='remote-download':
             safe_relative(data['file'])
-            folder=backup/'backups'/'downloaded';folder.mkdir(parents=True,exist_ok=True)
+            folder=backup/'backups'/'downloaded';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
             file=folder/(secrets.token_hex(4)+'-'+Path(data['file']).name)
-            self._command(['docker','run','--rm','-v',str(backup/'vw-backup-config')+':/config:ro',
-                '-v',str(folder)+':/download','--entrypoint','rclone','ttionya/vaultwarden-backup:latest','copyto',
-                target+'/'+data['file'],'/download/'+file.name],secret=True)
-            self.emit('已下载到本机：downloaded/'+file.name+'。可在恢复页面选择此文件。');return
+            try:self.rclone_probe(['copyto',target+'/'+data['file'],'/download/'+file.name],remote_file,label='下载备份',download_dir=folder)
+            except Exception:
+                file.unlink(missing_ok=True);raise
+            self.job['result']={'downloaded_file':'downloaded/'+file.name}
+            self.emit('备份已下载到服务器，可在本机备份文件中下载或恢复。');return
         raise ValueError('未知操作。')
 
     def save_preset_remote(self,data):
