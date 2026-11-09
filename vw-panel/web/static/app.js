@@ -186,8 +186,19 @@ function paintAutoSetup(choice){
         source.value=cfg?.configured?'existing':proxySourcePreference==='auto'?(choice.state==='existing'||choice.state==='choose'?'existing':choice.state==='install'?'install':'auto'):proxySourcePreference;
     }
     source.disabled=!!cfg?.configured;
-    const active=!cfg?.configured&&proxySourcePreference==='auto';$('proxy-auto-status').hidden=!active;
-    $('auto-detect-proxy').disabled=proxyDetectionLoading;$('refresh-proxy-logs').disabled=proxyDetectionLoading;
+    const active=!cfg?.configured&&proxySourcePreference==='auto';
+    const needsChoice=choice.state==='choose',unresolved=choice.state==='unknown';
+    $('proxy-auto-status').hidden=!active||proxyDetectionLoading||(!needsChoice&&!unresolved);
+    $('auto-proxy-target-field').hidden=!active||(!needsChoice&&!(choice.state==='existing'&&(proxyEnvironment?.proxies?.length||0)>1));
+    const existingOption=source.querySelector('option[value=existing]'),installOption=source.querySelector('option[value=install]');
+    const kind=choice.kind==='Nginx Proxy Manager'?'NPM':choice.kind;
+    existingOption.textContent=active&&choice.state==='existing'?'使用已有反代（检测到 '+kind+'）':active&&needsChoice?'使用已有反代（检测到多个或需确认）':'使用已有反代';
+    installOption.textContent=active&&choice.state==='install'?'安装新的反代（未检测到反代）':'安装新的反代';
+    source.title=active&&choice.state==='existing'?'检测到 '+choice.kind+' · '+choice.name:source.selectedOptions[0]?.textContent||'';
+    let help=cfg?.configured?'沿用当前已保存的配置。':proxyDetectionLoading?'正在确认服务器环境…':active&&choice.state==='existing'?'已自动选中，可按需要调整接入类型。':active&&choice.state==='install'?'可在下方选择 Caddy、NPM 或 Nginx。':active?'请根据检测结果确认，或手动选择接入方式。':'已使用你的手动选择。';
+    if(proxyEnvironment?.docker_installed===false)help+=' 请先在运行概览安装 Docker。';
+    $('proxy-source-help').textContent=help;
+    $('auto-detect-proxy').disabled=proxyDetectionLoading;$('auto-detect-proxy').textContent=proxyDetectionLoading?'检测中…':'重新检测';$('refresh-proxy-logs').disabled=proxyDetectionLoading;
     if(!active)return;
     const title=$('proxy-auto-title'),reason=$('proxy-auto-reason'),select=$('auto-proxy-target');
     select.replaceChildren(new Option('请选择检测到的反代',''));
@@ -469,17 +480,20 @@ document.addEventListener('change',()=>renderPresentation());
 
 
 let panelUpdating=false,checkingUpdates=false,panelUpdateInfo=null,updateWatch=null;
+let loadedPanelBuild='',upgradeTargetBuild='',panelReloadPending=false;
 let versionPopoverOpen=false,updateCheckError='';
 function paintPanelUpdate(info){
     clearTimeout(updateWatch);panelUpdateInfo=info;const installed=info.installed||{};const latest=info.latest;
     $('panel-version').textContent=installed.version||'未知版本';
     $('check-updates').title='当前构建 '+(installed.build_id||'未记录').slice(0,8)+' · 点击检查更新';
-    panelUpdating=info.progress?.state==='upgrading';
+    if(!loadedPanelBuild&&/^[a-f0-9]{64}$/.test(installed.build_id||''))loadedPanelBuild=installed.build_id;
+    if(info.progress?.state==='failed'||installed.build_id===upgradeTargetBuild)upgradeTargetBuild='';
+    panelUpdating=info.progress?.state==='upgrading'||!!upgradeTargetBuild;
     $('panel-update').className='panel-update';
     $('update-dot').hidden=!info.available;$('upgrade-panel').hidden=!info.available||panelUpdating;
     $('upgrade-panel').disabled=taskRunning||consoleRunning||panelUpdating;
     $('upgrade-panel').title=taskRunning||consoleRunning?'请先完成当前任务或结束高级控制台':'';
-    if(panelUpdating){$('update-message').textContent='正在升级管理面板，正在重启，将自动重新连接。'}
+    if(panelUpdating){$('update-message').textContent='面板升级中，完成后将自动刷新。'}
     else if(info.progress?.state==='failed'){$('panel-update').classList.add('error');$('update-message').textContent=info.progress.error||'升级失败，请重试。'}
     else if(info.error){$('panel-update').classList.add('error');$('update-message').textContent=info.error}
     else if(info.available&&latest){$('panel-update').classList.add('available');$('update-message').textContent='可升级到 '+latest.version+' · 构建 '+latest.build_id.slice(0,8)}
@@ -497,7 +511,7 @@ async function checkPanelUpdates(force=false){
         let response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin',signal:controller.signal});
         if(epoch!==authEpoch)throw sessionChanged();
         if(response.status===401){if(panelUpdating){location.reload();return}const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();if(!valid){expireSession();return}response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin',signal:controller.signal});if(epoch!==authEpoch)throw sessionChanged();if(response.status===401)throw Error('更新检查暂不可用，请稍后重试。')}
-        const info=await response.json();if(epoch!==authEpoch)throw sessionChanged();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');if(panelUpdating&&panelUpdateInfo?.installed?.build_id&&/^[a-f0-9]{64}$/.test(info.installed.build_id||'')&&info.installed.build_id!==panelUpdateInfo.installed.build_id&&info.progress?.state!=='failed'){location.reload();return}paintPanelUpdate(info);
+        const info=await response.json();if(epoch!==authEpoch)throw sessionChanged();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');if(loadedPanelBuild&&/^[a-f0-9]{64}$/.test(info.installed.build_id||'')&&info.installed.build_id!==loadedPanelBuild&&info.progress?.state!=='failed'){if(!panelReloadPending){panelReloadPending=true;clearTimeout(updateWatch);location.reload()}return}paintPanelUpdate(info);
     }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;updateCheckError=timedOut?'检查超时，请点击右上角刷新重试。':'连接失败，请点击右上角刷新重试。';$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
     finally{clearTimeout(timeout);parentSignal.removeEventListener('abort',cancel);if(epoch===authEpoch){checkingUpdates=false;syncVersionPopover()}}
 }
@@ -524,7 +538,7 @@ function syncVersionPopover(){
     const available=!!(info?.available&&!error),title=$('popover-status-title');
     $('check-updates').classList.toggle('has-update',available);
     title.textContent=panelUpdating?'正在更新面板':checkingUpdates?'正在检查更新':failed?'上次更新未完成':error?'暂时无法检查更新':available?'有新版本可用！':info?'已是最新版本':'检查面板更新';
-    if(panelUpdating)$('update-message').textContent='更新完成后自动回到面板，密码库服务保持运行。';
+    if(panelUpdating)$('update-message').textContent='更新完成后自动刷新并回到面板，密码库服务保持运行。';
     else if(failed)$('update-message').textContent=info.progress.error||'可重新检查后重试。';
     else if(checkingUpdates)$('update-message').textContent='正在获取最新版本信息，请稍候。';
     else if(error)$('update-message').textContent=error;
@@ -546,7 +560,7 @@ $('upgrade-panel').onclick=async()=>{
     const message=(hasInput?'页面还有未保存输入，重启后将丢失。\n':'')+'确认升级管理面板？升级会重启面板，完成后将自动重新连接；密码库与备份容器保持运行。';
     if(!confirm(message))return;
     $('upgrade-panel').disabled=true;
-    try{const progress=await api('updates/start',{build_id:panelUpdateInfo.latest.build_id,confirmed:true});paintPanelUpdate({...panelUpdateInfo,progress});}
+    try{const targetBuild=panelUpdateInfo.latest.build_id;const progress=await api('updates/start',{build_id:targetBuild,confirmed:true});upgradeTargetBuild=targetBuild;paintPanelUpdate({...panelUpdateInfo,progress});}
     catch(error){if(isSessionTransition(error))return;notice(error.message,true);$('upgrade-panel').disabled=false}
 };
 setInterval(()=>{if(csrf&&!panelUpdating)checkPanelUpdates(false)},60000);
