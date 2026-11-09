@@ -166,8 +166,9 @@ function syncProxyModes(source,selected){
     const select=$('core-form').elements.mode,options=proxyModes[source];
     if(Array.from(select.options).map(o=>o.value).join(',')!==options.map(o=>o[0]).join(',')){select.replaceChildren(...options.map(([value,label])=>new Option(label,value)))}
     select.value=options.some(o=>o[0]===selected)?selected:options[0][0];
-    $('proxy-source').value=cfg?.configured?source:proxySourcePreference;$('proxy-source').disabled=!!cfg?.configured;
-    $('proxy-mode-label').textContent=source==='install'?'安装的反代':'已有反代类型';
+    $('proxy-source').disabled=!!cfg?.configured;
+    $('proxy-mode-label').textContent=cfg?.configured?'当前反代配置':source==='install'?'安装的反代':'已有反代类型';
+    $('proxy-mode-help').textContent=cfg?.configured?'沿用已保存的反代配置。':source==='install'?'安装和 HTTPS 配置由面板任务完成。':'已自动带出接入类型，也可以手动调整。';
 }
 function resolveSetupChoice(){
     const env=proxyEnvironment,recommend=env?.recommendation;
@@ -175,6 +176,16 @@ function resolveSetupChoice(){
     return recommend||{state:'unknown',reason:proxyDetectionLoading?'正在检测服务器环境…':'尚未完成检测，请重新检测或手动指定。'};
 }
 function paintAutoSetup(choice){
+    const source=$('proxy-source'),saved=source.querySelector('option[value=configured]');
+    if(cfg?.configured&&proxySource(cfg.mode)==='install'){
+        const labels={caddy:'Caddy 自动 HTTPS',npm:'NPM（面板管理）',nginx:'Nginx（面板管理）'};
+        const option=saved||new Option('', 'configured');option.textContent='当前配置：'+(labels[cfg.mode]||cfg.mode);if(!saved)source.add(option);
+        source.value='configured';
+    }else{
+        saved?.remove();
+        source.value=cfg?.configured?'existing':proxySourcePreference==='auto'?(choice.state==='existing'||choice.state==='choose'?'existing':choice.state==='install'?'install':'auto'):proxySourcePreference;
+    }
+    source.disabled=!!cfg?.configured;
     const active=!cfg?.configured&&proxySourcePreference==='auto';$('proxy-auto-status').hidden=!active;
     $('auto-detect-proxy').disabled=proxyDetectionLoading;$('refresh-proxy-logs').disabled=proxyDetectionLoading;
     if(!active)return;
@@ -184,8 +195,8 @@ function paintAutoSetup(choice){
     select.value=choice.target||'';
     $('auto-proxy-target-field').hidden=choice.state!=='choose'&&!(choice.state==='existing'&&(proxyEnvironment?.proxies?.length||0)>1);
     if(proxyDetectionLoading){title.textContent='正在检测服务器环境…';reason.textContent='正在识别已有反代和入口端口，无需先判断服务器是否安装过反代。'}
-    else if(choice.state==='existing'){title.textContent='检测到 '+choice.kind+'，建议复用';reason.textContent='将接入 '+choice.name+'，不会重复安装反代。'+(choice.mode==='docker_ext'?'面板会读取它的 Docker 网络。':'使用本机转发端口接入现有服务。')}
-    else if(choice.state==='install'){title.textContent='入口空闲，可以安装反代';reason.textContent='推荐配置简单的 Caddy，也可以在下方改选 NPM 或 Nginx。'}
+    else if(choice.state==='existing'){title.textContent='已自动选择：使用 '+choice.kind;reason.textContent='检测到 '+choice.name+'，将接入现有反代，不会重复安装反代。'+(choice.mode==='docker_ext'?'面板会读取它的 Docker 网络。':'使用本机转发端口接入现有服务。')}
+    else if(choice.state==='install'){title.textContent='入口空闲，已选择新装反代';reason.textContent='推荐配置简单的 Caddy，也可以在下方改选 NPM 或 Nginx。'}
     else{title.textContent=choice.state==='choose'?'请选择检测到的反代':'环境暂未确认';reason.textContent=choice.reason||'请重新检测，或在服务器环境中切换到手动选择。'}
     if(proxyEnvironment?.docker_installed===false)reason.textContent+=' Vaultwarden 还需要 Docker，请先在运行概览安装。'
 }
@@ -216,7 +227,7 @@ function routeHelp(){
         else if(choice.state==='existing'){syncProxyModes('existing',choice.mode);mode=form.elements.mode.value;form.elements.PROXY_TARGET.value=choice.target||''}
         else{form.elements.mode.replaceChildren(new Option(proxyDetectionLoading?'正在检测…':'请先确认服务器环境',''));mode='';form.elements.PROXY_TARGET.value='';$('proxy-source').value='auto';$('proxy-source').disabled=false;$('proxy-mode-label').textContent='检测结果'}
     }else{syncProxyModes(proxySource(mode),mode);mode=form.elements.mode.value;if(!cfg?.configured)form.elements.PROXY_TARGET.value=''}
-    form.elements.mode.required=true;form.elements.mode.closest('label').hidden=!cfg?.configured&&proxySourcePreference==='auto'&&choice.state==='existing';
+    form.elements.mode.required=true;form.elements.mode.closest('label').hidden=false;
     form.elements.mode.setCustomValidity(!cfg?.configured&&proxySourcePreference==='auto'&&!mode?'请先完成服务器环境检测，或手动选择接入方式。':'');
     paintAutoSetup(choice);paintProxyLogSources();
     $('npm-port-field').hidden=mode!=='npm';$('npm-password-field').hidden=mode!=='npm';
@@ -236,8 +247,8 @@ function routeHelp(){
     if(cfg?.configured){$('route-help').textContent=mode==='caddy'?'当前使用 Caddy 自动 HTTPS，代理目标为 vaultwarden:80。更换域名后保存并应用配置。':mode==='host_ext'?'当前使用宿主机反向代理，转发目标为 http://127.0.0.1:'+form.elements.port.value+'，域名和证书由现有反代管理。':'当前通过 Docker 网络 '+form.elements.network.value+' 接入容器反代，转发目标为 http://vaultwarden:80，域名和证书由现有反代管理。';return}
     $('route-help').textContent=mode==='caddy'?'无需预装反代：部署时自动启动 Caddy 容器并申请 HTTPS 证书。请将域名解析到本服务器并放行 80 / 443；若端口已有服务，请选择已有反代方式。':mode==='host_ext'?'使用服务器上已经运行的 Nginx、Caddy 等反代，转发到 http://127.0.0.1:'+form.elements.port.value+'，域名和 HTTPS 由现有反代配置。此选项不会安装宿主机反代。':'使用已运行的 NPM、Caddy、Traefik 等代理容器，Vaultwarden 加入所选网络；在现有反代中添加密码库域名，目标填写 http://vaultwarden:80 并配置 HTTPS。此选项不会安装 NPM，也不会改写已有反代配置。';
 }
-$('proxy-source').onchange=()=>{proxySourcePreference=$('proxy-source').value;if(proxySourcePreference!=='auto')syncProxyModes(proxySourcePreference);dirty.add('core-form');routeHelp();if(!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()};
-$('core-form').elements.mode.onchange=()=>{if(proxySourcePreference==='auto'&&['caddy','npm','nginx'].includes($('core-form').elements.mode.value))autoInstallMode=$('core-form').elements.mode.value;routeHelp();if(!cfg?.configured&&!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()};
+$('proxy-source').onchange=()=>{proxySourcePreference=$('proxy-source').value;if(proxySourcePreference!=='auto')syncProxyModes(proxySourcePreference);dirty.add('core-form');routeHelp();if((proxySourcePreference==='auto'||!proxyEnvironment)&&!proxyDetectionLoading)loadProxyEnvironment()};
+$('core-form').elements.mode.onchange=()=>{if(!cfg?.configured){proxySourcePreference=proxySource($('core-form').elements.mode.value);if(proxySourcePreference==='install')autoInstallMode=$('core-form').elements.mode.value}routeHelp();if(!cfg?.configured&&!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()};
 $('core-form').elements.port.oninput=routeHelp;
 $('core-form').elements.network.oninput=()=>{proxyNetworkEdited=true;proxyManualNetwork=$('core-form').elements.network.value;routeHelp()};
 $('proxy-choice').onchange=()=>{if(!$('proxy-choice').value)return;$('core-form').elements.network.value=$('proxy-choice').value;proxyNetworkEdited=true;proxyManualNetwork=$('proxy-choice').value;dirty.add('core-form');routeHelp()};
