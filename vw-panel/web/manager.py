@@ -484,6 +484,41 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             raise ValueError('命令执行失败，请查看任务详情。' if not secret else '操作失败，请检查连接与配置。凭据未写入日志。')
         return raw
 
+    def _deploy_core(self, action='deploy'):
+        app, backup = self.paths()
+        memory = read_vars(self.memory)
+        compose = self.compose
+        env = read_vars(app / 'vaultwarden.env')
+        if not env.get('ADMIN_TOKEN'):
+            raise ValueError('请先在密码库配置页设置管理口令。')
+        self._command(['docker', 'compose', 'version'])
+        network = memory.get('DOCKER_NET')
+        if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
+            existing_network(network)
+        if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
+            settings = self.proxy_settings()
+            ensure_proxy_ports(settings['kind'], self.proxy_folder(), settings.get('admin_port'))
+        if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
+            ensure_caddy_available(Path(memory['CADDY_DIR']) / 'Caddyfile')
+        if network:
+            result = subprocess.run(['docker', 'network', 'inspect', network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            if result.returncode:
+                if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
+                    raise ValueError('反代网络已不存在，请恢复原网络后重新部署。')
+                self._command(['docker', 'network', 'create', network])
+        if action == 'upgrade':
+            self._command(compose(app, 'pull'))
+        self._command(compose(app, 'up', '-d'))
+        if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
+            self._command(compose(Path(memory['CADDY_DIR']), 'up', '-d'))
+        if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
+            self.deploy_managed_proxy(upgrade=action=='upgrade')
+        if memory.get('PROXY_MODE')=='caddy':
+            self._command(['docker','exec',memory.get('EXISTING_CADDY_ID') or 'caddy','caddy','reload','--config','/etc/caddy/Caddyfile'])
+        result = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden'])
+        if result.strip() != 'true':
+            raise ValueError('容器未保持运行，请查看服务日志。')
+
     def _run(self, action, password, guard):
         before = {}; succeeded = False
         try:
@@ -554,6 +589,15 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             elif action.startswith('backup-'):
                 if not (backup / 'docker-compose.yml').exists():
                     raise ValueError('请先保存备份配置。')
+                if action == 'backup-start':
+                    try:
+                        running = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden']).strip() == 'true'
+                    except ValueError:
+                        running = False
+                    if not running:
+                        self.emit('主服务尚未运行，先启动主服务。')
+                        self._deploy_core()
+                        self.note_applied('core')
                 if action == 'backup-now':
                     self._command(['docker', 'exec', 'vaultwarden-backup', '/app/backup.sh'])
                 else:
@@ -563,41 +607,9 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                         if result.strip() != 'true':
                             raise ValueError('备份容器未保持运行，请查看备份日志。')
             else:
-                env = read_vars(app / 'vaultwarden.env')
-                if not env.get('ADMIN_TOKEN'):
-                    raise ValueError('请先在密码库配置页设置管理口令。')
-                self._command(['docker', 'compose', 'version'])
-                network = memory.get('DOCKER_NET')
-                if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
-                    existing_network(network)
-                if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
-                    settings = self.proxy_settings()
-                    ensure_proxy_ports(settings['kind'], self.proxy_folder(), settings.get('admin_port'))
-                if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
-                    ensure_caddy_available(Path(memory['CADDY_DIR']) / 'Caddyfile')
-                if network:
-                    result = subprocess.run(['docker', 'network', 'inspect', network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-                    if result.returncode:
-                        if memory.get('PROXY_MODE') == 'docker_ext' and not memory.get('PANEL_PROXY_KIND'):
-                            raise ValueError('反代网络已不存在，请恢复原网络后重新部署。')
-                        self._command(['docker', 'network', 'create', network])
-                if action == 'upgrade':
-                    self._command(compose(app, 'pull'))
-                self._command(compose(app, 'up', '-d'))
-                if memory.get('PROXY_MODE') == 'caddy' and memory.get('CADDY_EXISTS') == 'false':
-                    self._command(compose(Path(memory['CADDY_DIR']), 'up', '-d'))
-                if memory.get('PANEL_PROXY_KIND') in ('npm', 'nginx'):
-                    self.deploy_managed_proxy(upgrade=action=='upgrade')
-                if action=='upgrade' and (backup/'docker-compose.yml').exists():
-                    self._command(compose(backup,'pull'))
-                    self._command(compose(backup,'up','-d'))
-                if memory.get('PROXY_MODE')=='caddy':
-                    self._command(['docker','exec',memory.get('EXISTING_CADDY_ID') or 'caddy','caddy','reload','--config','/etc/caddy/Caddyfile'])
-                result = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden'])
-                if result.strip() != 'true':
-                    raise ValueError('容器未保持运行，请查看服务日志。')
+                self._deploy_core(action)
             if action in ('deploy','upgrade'):self.note_applied('core')
-            if action in ('backup-start','upgrade') and self.revision('backup'):self.note_applied('backup')
+            if action=='backup-start' and self.revision('backup'):self.note_applied('backup')
             succeeded=True
         except (ValueError, OSError, subprocess.SubprocessError, configparser.Error, sqlite3.Error, tarfile.TarError) as error:
             with self.mutex:

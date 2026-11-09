@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const names={overview:'运行概览',vault:'密码库配置',mail:'邮件服务',backup:'备份与恢复',tasks:'任务与日志',settings:'面板设置',remote:'远程存储',restore:'备份与恢复',diagnostics:'诊断与状态',cleanup:'卸载与清理'};
+const names={overview:'运行概览',vault:'密码库配置',mail:'邮件服务',backup:'备份设置',archives:'备份文件与恢复',tasks:'任务与日志',settings:'面板设置',remote:'远程存储',restore:'备份与恢复',diagnostics:'诊断与状态',cleanup:'卸载与清理'};
 let lastStatus=0;
 let proxyLogPreference='';
 let proxySourcePreference='auto',autoProxyTarget='',autoInstallMode='caddy';
@@ -32,7 +32,7 @@ function expireSession(){
 }
 
 function notice(message,error=false){if(error&&isAuthMessage(message)&&authPhase==='authenticated'){$('notice').textContent='正在确认登录状态…';$('notice').hidden=false;$('notice').classList.remove('error');reconcileAuthNotice();return}if(authPhase!=='authenticated'){message='';error=false}$('notice').textContent=message;$('notice').hidden=!message;$('notice').classList.toggle('error',error)}
-function route(){const requested=location.hash.slice(1);const page=requested==='restore'?'backup':requested in names?requested:'overview';if(requested==='restore'){history.replaceState(null,'','#backup');requestAnimationFrame(()=>{if(location.hash!=='#backup')return;const form=$('restore-form');revealGroup(form);form.closest('.config-group')?.scrollIntoView({block:'start'})})};document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==page);document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active',v.dataset.page===page));$('breadcrumb').textContent=names[page];document.title=names[page]+' · Vaultwarden'}
+function route(){const requested=location.hash.slice(1);const page=requested==='restore'?'archives':requested in names?requested:'overview';if(requested==='restore'){history.replaceState(null,'','#archives');requestAnimationFrame(()=>{if(location.hash!=='#archives')return;const form=$('restore-form');revealGroup(form);form.closest('.config-group')?.scrollIntoView({block:'start'})})};document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==page);document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active',v.dataset.page===page));document.querySelectorAll('.nav-group').forEach(group=>{group.open=!!group.querySelector('[data-page="'+page+'"]')});$('breadcrumb').textContent=names[page];document.title=names[page]+' · Vaultwarden'}
 addEventListener('hashchange',()=>{route();notice('')});route();
 let authRecheck=null;
 function isAuthMessage(message){return typeof message==='string'&&/^请先登录[。.!！]?$/.test(message.trim())}
@@ -275,8 +275,9 @@ $('show-npm-credentials').onclick=async()=>{
 function formValues(id){const values={};for(const field of $(id).elements){if(!field.name)continue;values[field.name]=field.type==='checkbox'?field.checked:field.value}return values}
 for(const [id,section]of [['core-form','core'],['mail-form','mail'],['backup-form','backup']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget;const button=form.querySelector('button[type=submit]')||form.querySelector('button');button.disabled=true;try{const data=formValues(id);const result=await api('config/'+section,data);dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(v=>v.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
 async function refreshStatus(){try{const status=await api('status');environment=status;lastStatus=Date.now();for(const [name,id]of [['vaultwarden','vault'],['vaultwarden-backup','backup']]){const row=status.containers.find(r=>r.Names===name),active=row&&row.State==='running';$(id+'-state').textContent=!status.available?(status.docker_installed===false?'环境未就绪':'状态未知'):!row?'尚未部署':active?'运行中':'已停止';$(id+'-state').classList.toggle('good',!!active);$(id+'-detail').textContent=row?row.Status:status.message||'完成配置后即可启动';if(id==='vault'){$('step-deploy').classList.toggle('done',!!active);$('step-deploy').querySelector('b').textContent=active?'已运行':'待部署';$('setup-heading').textContent=active?'你的密码库，正在安心运行。':'三步，拥有自己的密码库。'}}$('docker-help').hidden=status.available;renderPresentation()}catch(e){if(isSessionTransition(e))return;environment={unknown:true,available:false,docker_installed:null,containers:[]};for(const id of ['vault','backup']){$(id+'-state').textContent='状态未知';$(id+'-state').classList.remove('good');$(id+'-detail').textContent='暂时无法读取服务状态'}renderPresentation();notice(e.message,true)}}
-async function startTask(action,extra={}){const epoch=authEpoch;if(action==='proxy-logs'){if(!$('proxy-log-source').value){location.hash='diagnostics';revealGroup($('proxy-log-source'));notice('请先选择实际检测到的反代日志来源。');return false}extra={...extra,proxy_id:$('proxy-log-source').value}}if(panelUpdating){notice('面板正在升级，请完成后再操作。',true);return false}if(taskRunning){location.hash='tasks';notice('已有任务正在执行，请等待完成。');return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!confirm(confirmations[action]))return false;try{await api('task/start',{action,confirmed:true,...extra});location.hash='tasks';notice('任务已开始，可以在此查看执行结果。');await poll();if(epoch!==authEpoch)return false;return true}catch(e){if(isSessionTransition(e))return;notice(e.message,true);return false}}
+async function startTask(action,extra={}){const epoch=authEpoch;if(action==='proxy-logs'){if(!$('proxy-log-source').value){location.hash='diagnostics';revealGroup($('proxy-log-source'));notice('请先选择实际检测到的反代日志来源。');return false}extra={...extra,proxy_id:$('proxy-log-source').value}}if(panelUpdating){notice('面板正在升级，请完成后再操作。',true);return false}if(taskRunning){location.hash='tasks';notice('已有任务正在执行，请等待完成。');return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}if(action==='backup-start'&&(!cfg?.configured||!cfg?.admin_set)){location.hash='vault';notice('请先保存主服务配置并设置管理口令。',true);return false}if(action==='backup-start'&&!environment?.containers?.some(row=>row.Names==='vaultwarden'&&row.State==='running')&&!confirm('将先启动密码库主服务，再启用备份服务。确认继续？'))return false;const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!confirm(confirmations[action]))return false;try{await api('task/start',{action,confirmed:true,...extra});location.hash='tasks';notice('任务已开始，可以在此查看执行结果。');await poll();if(epoch!==authEpoch)return false;return true}catch(e){if(isSessionTransition(e))return;notice(e.message,true);return false}}
 document.querySelectorAll('[data-task]').forEach(button=>button.onclick=()=>startTask(button.dataset.task));
+document.querySelectorAll('[data-uninstall]').forEach(button=>button.onclick=()=>{const form=$('remove-form');form.elements.scope.value=button.dataset.uninstall;form.elements.delete_data.value='keep';form.elements.remove_proxy.checked=false;form.dispatchEvent(new Event('change',{bubbles:true}));location.hash='cleanup';revealGroup(form)});
 $('log-service').onchange=()=>{$('view-service-logs').dataset.task=$('log-service').value};
 $('remote-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(!confirm('将验证 WebDAV 连接并切换备份目标。原文件保留，配置完成后需应用备份服务。确认继续？'))return;if(await startTask('remote-save',formValues('remote-form'))){dirty.delete('remote-form');form.elements.password.value=''}};
 $('token-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(form.elements.password.value!==form.elements.confirmation.value)return notice('两次输入的管理口令不一致。',true);if(form.elements.password.value.length<12)return notice('管理口令至少需要 12 个字符。',true);if(await startTask('admin-token',{password:form.elements.password.value}))form.reset()};
@@ -334,7 +335,7 @@ function revealGroup(element){
     while(group){group.open=true;group=group.parentElement.closest('details.config-group')}
 }
 function setupGroups(){
-    const defaults={vault:'基本信息与权限',mail:'SMTP 连接',backup:'自动备份计划',remote:'已配置的存储',settings:'通过自己的域名访问面板',cleanup:'卸载范围与数据'};
+    const defaults={vault:'基本信息与权限',mail:'SMTP 连接',backup:'自动备份计划',remote:'已配置的存储',archives:'本机备份文件',settings:'通过自己的域名访问面板',cleanup:'卸载范围与数据'};
     for(const view of document.querySelectorAll('[data-view]')){
         if(!(view.dataset.view in defaults))continue;
         for(const card of view.querySelectorAll('article.card')){
@@ -432,6 +433,8 @@ function applyPresentation(bar,scope,row){
     else{bar.hidden=true;return}
     bar.hidden=false;bar.querySelector('strong').textContent=title;bar.querySelector('p').textContent=description;
     const button=bar.querySelector('button');button.textContent=label;
+    if(scope==='backup'&&(!cfg.configured||!cfg.admin_set)){bar.querySelector('strong').textContent='请先完成主服务配置';bar.querySelector('p').textContent='备份依赖密码库。请先保存主服务配置并设置管理口令。';button.textContent='配置主服务';button.disabled=taskRunning;button.onclick=()=>{location.hash='vault'};return}
+    if(scope==='backup'&&!active&&!environment?.unknown&&environment?.available&&!environment.containers.some(row=>row.Names==='vaultwarden'&&row.State==='running'))bar.querySelector('p').textContent='启用备份时将先启动密码库主服务，再启动备份服务。';
     button.disabled=taskRunning||unsaved||(!needsToken&&(!environment?.available||environment?.unknown));
     button.title=button.disabled?(unsaved?'请先保存修改':taskRunning?'已有任务正在执行':'请先确认 Docker 和服务状态'):'';
     button.onclick=needsToken?()=>{revealGroup($('token-form'));$('token-form').elements.password.focus()}:()=>startTask(action);
@@ -474,12 +477,16 @@ function renderPresentation(){
     $('backup-form').querySelector('.form-footer>span').textContent=hasUnsaved('backup')?'修改尚未保存':backupPending?'计划已保存，等待应用到备份服务':cfg.backup_configured?'修改计划后保存，再应用备份配置':'先填写备份计划与加密密码';
     for(const button of document.querySelectorAll('[data-task="backup-start"]'))if(!button.closest('[data-apply-scope]'))button.textContent=backupPending?'应用备份配置':backupActive?'重新应用备份配置':'启用备份服务';
     const backupUnknown=!environment.available||environment.unknown;
+    const prerequisite=!cfg.configured||!cfg.admin_set;
+    $('backup-prerequisite').hidden=!prerequisite;
+    $('backup-prerequisite').querySelector('span').textContent=!cfg.configured?'请先保存主服务配置，再设置备份计划。':'主服务尚未设置管理口令，完成后才能启用备份。';
+    $('backup-form').querySelector('button[type=submit]').disabled=taskRunning||!cfg.configured;
     $('backup-service-status').textContent=backupUnknown?'状态未知':backupActive?'运行中':backup?'已暂停':cfg.backup_configured?'待启用':'未配置';
     $('backup-service-status').classList.toggle('is-running',!!backupActive&&!backupUnknown);
     $('backup-service-description').textContent=backupUnknown?'暂时无法确认服务状态，请刷新后重试。':backupActive?'按已保存的计划自动备份，也可以立即创建一份。':backup?'自动备份已暂停，已有配置和备份文件保留。':cfg.backup_configured?'备份计划已保存，启用后开始自动执行。':'先填写并保存下方备份计划，再启用服务。';
     const backupStart=$('backup-service-start');
     backupStart.hidden=!document.querySelector('[data-apply-scope="backup"]').hidden;
-    backupStart.disabled=taskRunning||backupUnknown||!cfg.backup_configured||hasUnsaved('backup');
+    backupStart.disabled=taskRunning||backupUnknown||prerequisite||!cfg.backup_configured||hasUnsaved('backup');
     backupStart.className=backupActive?'secondary':'primary';
     const backupNow=$('backup-service').querySelector('[data-task="backup-now"]');backupNow.className=backupActive?'primary':'secondary';backupNow.hidden=!backup;
     $('backup-service').querySelector('.backup-maintenance').hidden=!backup;
