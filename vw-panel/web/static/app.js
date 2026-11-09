@@ -8,12 +8,13 @@ let proxyEnvironment=null,proxyDetectionLoading=false,proxyDetectionSequence=0,p
 let csrf='', timer=null, refreshing=false, taskRunning=false, currentTask='', finishedTask='', cfg=null;
 let cursor=0,generation='',raw='',consoleRunning=false,hiddenInput=false;
 const dirty=new Set();
+let tokenState={id:'',phase:'',message:''},tokenStarting=false;
 let authEpoch=0,authPhase='checking',authController=new AbortController();
 const activeUploads=new Set();
 function sessionChanged(){const error=new Error('');error.name='SessionChanged';return error}
 function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
-    setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
+    tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
@@ -282,8 +283,36 @@ document.querySelectorAll('[data-task]').forEach(button=>button.onclick=()=>star
 document.querySelectorAll('[data-uninstall]').forEach(button=>button.onclick=()=>{const form=$('remove-form');form.elements.scope.value=button.dataset.uninstall;form.elements.delete_data.value='keep';form.elements.remove_proxy.checked=false;form.dispatchEvent(new Event('change',{bubbles:true}));location.hash='cleanup';revealGroup(form)});
 $('log-service').onchange=()=>{$('view-service-logs').dataset.task=$('log-service').value};
 $('remote-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(!confirm('将验证 WebDAV 连接并切换备份目标。原文件保留，配置完成后需应用备份服务。确认继续？'))return;if(await startTask('remote-save',formValues('remote-form'))){dirty.delete('remote-form');form.elements.password.value=''}};
-$('token-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(form.elements.password.value!==form.elements.confirmation.value)return notice('两次输入的管理口令不一致。',true);if(form.elements.password.value.length<12)return notice('管理口令至少需要 12 个字符。',true);if(await startTask('admin-token',{password:form.elements.password.value}))form.reset()};
-function paintTask(job){presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed'||['logs','backup-logs','proxy-logs'].includes(job.action))$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation();syncVersionPopover()}
+function syncTokenJob(job){
+    if(!tokenState.id||job.id!==tokenState.id)return;
+    tokenState.phase=job.state;
+    tokenState.message=job.state==='running'?'正在加密并保存管理口令，请稍候…':job.state==='success'?'管理口令已加密保存。应用密码库配置后生效；原口令不回显，留空保留。':job.state==='failed'?'管理口令保存失败：'+(job.error||'请稍后重试。'):tokenState.message;
+}
+function renderTokenForm(){
+    const form=$('token-form'),busy=tokenStarting||tokenState.phase==='running',saved=!!cfg?.admin_set;
+    const editing=!!(form.elements.password.value||form.elements.confirmation.value);
+    for(const name of ['password','confirmation']){form.elements[name].required=!saved||editing;form.elements[name].disabled=busy}
+    form.elements.password.placeholder=saved?'已设置，填写新口令才修改':'输入新口令';
+    form.elements.confirmation.placeholder=saved?'修改时请再次输入新口令':'再次输入以确认';
+    const button=form.querySelector('button[type=submit]');button.disabled=busy||taskRunning||panelUpdating;button.textContent=busy?'正在加密保存…':'加密并保存管理口令';
+    $('token-feedback').textContent=tokenState.message||(saved?'已设置管理口令。仅保存加密结果，原口令不回显；留空保留，填写新口令可修改。':'尚未设置管理口令，请填写并保存。');
+    $('token-feedback').classList.toggle('error',tokenState.phase==='failed');
+}
+$('token-form').onsubmit=async event=>{
+    event.preventDefault();const form=event.currentTarget,epoch=authEpoch;
+    const feedback=(message,error=false)=>{tokenState={id:'',phase:error?'failed':'',message};renderTokenForm()};
+    if(tokenStarting||tokenState.phase==='running')return;
+    if(panelUpdating||taskRunning)return feedback('有任务正在执行，请完成后再保存管理口令。',true);
+    const password=form.elements.password.value,confirmation=form.elements.confirmation.value;
+    if(!password&&!confirmation&&cfg?.admin_set)return feedback('未修改管理口令，继续保留现有口令。');
+    if(password!==confirmation)return feedback('两次输入的管理口令不一致。',true);
+    if(password.length<12)return feedback('管理口令至少需要 12 个字符。',true);
+    tokenStarting=true;tokenState={id:'',phase:'running',message:'正在加密并保存管理口令，请稍候…'};renderTokenForm();
+    try{const job=await api('task/start',{action:'admin-token',confirmed:true,password});if(epoch!==authEpoch)return;form.reset();tokenState.id=job.id;syncTokenJob(job);await poll()}
+    catch(error){if(isSessionTransition(error))return;feedback(error.message,true)}
+    finally{if(epoch===authEpoch){tokenStarting=false;renderTokenForm()}}
+};
+function paintTask(job){syncTokenJob(job);presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+job.state;$('task-spinner').hidden=!taskRunning;$('task-description').textContent=taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error;$('task-error').textContent=job.error||'';if(job.state==='failed'||['logs','backup-logs','proxy-logs'].includes(job.action))$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation();syncVersionPopover()}
 async function poll(){if(refreshing||!csrf)return;const epoch=authEpoch;refreshing=true;try{const job=await api('task');paintTask(job);if(job.result)renderResult(job);if(Date.now()-lastStatus>15000)await refreshStatus();if(epoch!==authEpoch)return;if(job.id&&job.state!=='running'&&finishedTask!==job.id){finishedTask=job.id;await Promise.all([loadConfig(),refreshStatus()])}if(epoch!==authEpoch)return;if($('advanced').open||consoleRunning)await pollConsole()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)refreshing=false}}
 $('refresh').onclick=async()=>{const epoch=authEpoch;await Promise.all([loadConfig(),refreshStatus(),poll()]);if(epoch!==authEpoch)return;notice('状态已刷新，未保存的表单已保留。')};$('refresh-files').onclick=loadConfig;
 async function loadSettings(){try{const settings=await api('settings');settingsSnapshot=settings;$('domains').textContent=settings.origins.length?'已允许访问：'+settings.origins.join('、'):'尚未添加域名，当前可通过 IP 访问。';$('proxy-help').textContent='宿主机反向代理目标：http://127.0.0.1:'+settings.port+'。Nginx 需保留原始 Host（含端口）：proxy_set_header Host $http_host;';renderPresentation()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
@@ -446,6 +475,7 @@ function renderPresentation(){
     $('push-credentials').hidden=!pushEnabled;
     $('push-form').elements.enabled.setAttribute('aria-expanded',String(pushEnabled));
     if(!cfg||!environment)return;
+    renderTokenForm();
     const core=environment.containers.find(row=>row.Names==='vaultwarden');const backup=environment.containers.find(row=>row.Names==='vaultwarden-backup');
     const active=core?.State==='running',backupActive=backup?.State==='running';
     const ready=cfg.configured&&cfg.admin_set;

@@ -111,3 +111,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.7.3 域名输入优化
 
 密码库地址可直接填写域名（例如 vault.example.com），自动补全为 HTTPS 地址。已有完整 HTTPS 地址保持不变；域名仍须解析到服务器。
+
+## 0.7.4 管理口令就地反馈
+
+保存管理口令停留在密码库配置页，显示加密进度及成功或失败结果。已设置状态明确展示，原口令不回显，留空保留。

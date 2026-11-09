@@ -108,3 +108,5 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 .service-strip .apply-bar p{font-size:11px}
 @media(max-width:1100px){.service-strip .backup-service-main{align-items:stretch;flex-direction:column;gap:16px}.service-actions{justify-content:flex-start}}
 @media(max-width:760px){.service-strip{padding:18px}.service-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:8px}.service-actions>button{min-width:0;padding:11px 8px;font-size:12px}}
+
+.token-feedback{margin:0 0 18px;padding:12px 15px;background:var(--purple-light);color:#71659a;border-radius:8px;font-size:12px;line-height:1.7}.token-feedback.error{background:#fff3f4;color:#b34b60}
