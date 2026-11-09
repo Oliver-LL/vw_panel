@@ -124,3 +124,5 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 .toast-detail{background:transparent;color:inherit;font-weight:600;white-space:nowrap;font-size:12px;padding:5px;border-radius:5px}.toast-detail:hover{background:#f5f2fa}.toast-close{background:transparent;color:#a49eae;font-size:20px;line-height:1;padding:4px;flex-shrink:0;border-radius:5px}
 @media(max-width:760px){#notice{top:14px;gap:8px;padding:12px;flex-wrap:wrap;width:calc(100vw - 28px);max-width:500px}#notice-message{flex:1;max-width:none}.toast-detail{margin-left:31px;order:4}.toast-close{margin-left:auto}}
 @media(prefers-reduced-motion:reduce){#notice.loading .toast-icon{animation:none}}
+
+.proxy-overview{margin-bottom:20px}.field small a{color:var(--accent);margin-left:6px}.proxy-overview .muted{font-size:12px}#external-npm-record .form-actions{justify-content:flex-start}#external-record-email{font-size:12px;margin-top:8px}

@@ -47,6 +47,14 @@ class ExistingNPMTests(unittest.TestCase):
         self.assertNotIn(self.data['password'],state.read_text());self.assertNotIn('private-token',state.read_text())
         self.assertEqual(json.loads(state.read_text())['network'],'npm_default')
         self.assertEqual(adapter.password,'')
+        record=self.manager.config()['external_proxy']
+        self.assertTrue(record['recorded']);self.assertEqual(record['email'],self.data['email'])
+        self.assertNotIn(self.data['password'],json.dumps(record))
+        old=json.loads(state.read_text());old.pop('email');state.write_text(json.dumps(old))
+        legacy=self.manager.config()['external_proxy'];self.assertTrue(legacy['recorded']);self.assertEqual(legacy['email'],'')
+        update_vars(self.manager.memory,{'PANEL_PROXY_TARGET':''});(self.manager.state/'existing-npm'/'last-target.json').unlink()
+        self.assertTrue(self.manager.config()['external_proxy']['recorded'])
+
 
     def test_foreign_same_domain_stops_before_writes(self):
         self.prepare();self.hosts=[{'id':3,'domain_names':['vault.example.com']}]

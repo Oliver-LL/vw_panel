@@ -181,7 +181,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         memory = read_vars(self.memory)
         safe_keys = ('DOMAIN', 'SERVER_ADMIN_EMAIL', 'SIGNUPS_ALLOWED', 'INVITATIONS_ALLOWED',
                      'SENDS_ALLOWED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_FROM', 'SMTP_USERNAME')
-        return {'application': self.application_state(), 'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
+        from existing_npm import public_route
+        return {'external_proxy':public_route(self,memory,core),'application': self.application_state(), 'directory': str(self.root()), 'configured': (app / 'docker-compose.yml').exists(),
                 'backup_configured': (backup / 'docker-compose.yml').exists(),
                 'mode': memory.get('PANEL_PROXY_KIND') or memory.get('PROXY_MODE', 'caddy'), 'proxy': self.public_proxy(), 'port': memory.get('EXT_PORT', '8080'),
                 'network': memory.get('DOCKER_NET', 'vaultwarden_net'), 'proxy_target':memory.get('PANEL_PROXY_TARGET',''),
@@ -223,7 +224,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 result = self._save(section, data)
             finally:
                 self.note_changes(before)
-            scope = 'core' if section in ('core','mail','advanced','push') else 'backup'
+            scope = 'core' if section in ('core','permissions','mail','advanced','push') else 'backup'
             state = self.application_state()[scope]
             if scope=='core' and not read_vars(self.paths()[0]/'vaultwarden.env').get('ADMIN_TOKEN'):
                 result['message']='配置已保存。设置管理口令后即可部署密码库。'
@@ -239,6 +240,14 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         app, backup = self.paths()
         if section == 'core':
             return self.save_core(data, app)
+        if section == 'permissions':
+            if not (app/'vaultwarden.env').exists():raise ValueError('请先保存基本信息。')
+            updates={}
+            for key in ('SIGNUPS_ALLOWED','INVITATIONS_ALLOWED','SENDS_ALLOWED'):
+                if not isinstance(data.get(key),bool):raise ValueError('开关值不正确。')
+                updates[key]=str(data[key]).lower()
+            update_vars(app/'vaultwarden.env',updates)
+            return {'ok':True,'message':'注册与权限已保存。'}
         if section == 'mail':
             if not (app / 'vaultwarden.env').exists():
                 raise ValueError('请先保存密码库配置。')
@@ -312,9 +321,13 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         password = data.get('ADMIN_TOKEN', '')
         updates = {'DOMAIN': domain.rstrip('/'), 'SERVER_ADMIN_EMAIL': text(data.get('SERVER_ADMIN_EMAIL', ''), '邮箱')}
         for key in ('SIGNUPS_ALLOWED', 'INVITATIONS_ALLOWED', 'SENDS_ALLOWED'):
-            if not isinstance(data.get(key), bool):
-                raise ValueError('开关值不正确。')
-            updates[key] = str(data[key]).lower()
+            if key in data:
+                if not isinstance(data[key],bool):raise ValueError('开关值不正确。')
+                updates[key]=str(data[key]).lower()
+            else:
+                existing=current['core'].get(key,'')
+                default=not current['configured'] if key=='SIGNUPS_ALLOWED' else key=='INVITATIONS_ALLOWED'
+                updates[key]=existing if existing in ('true','false') else str(default).lower()
         # Token hashing is a separate job; never store a new plaintext admin token.
         if password:
             raise ValueError('请通过“设置管理口令”单独提交密码。')

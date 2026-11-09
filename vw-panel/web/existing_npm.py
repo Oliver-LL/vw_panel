@@ -73,8 +73,32 @@ class ExistingNPM(ManagedProxyMixin):
         try:
             self.configure_npm()
             from manager import write_private
-            saved=json.loads(state.read_text());saved['network']=self.network
+            saved=json.loads(state.read_text());saved['network']=self.network;saved['email']=self.email
             write_private(state,json.dumps(saved))
+            write_private(self.manager.state/'existing-npm'/'last-target.json',json.dumps({'target':self.target}))
             self.emit('已在现有 NPM 写入密码库站点与 HTTPS。请实际打开密码库验证访问。')
         finally:
             self.password=''
+
+def public_route(manager,memory,core):
+    """Return last completed route metadata, never login credentials or live-health claims."""
+    try:
+        if memory.get('PANEL_PROXY_KIND') or memory.get('PROXY_MODE')!='docker_ext':return {}
+        root=manager.state/'existing-npm'
+        target=memory.get('PANEL_PROXY_TARGET','')
+        if not target:
+            if (root/'last-target.json').exists():target=json.loads((root/'last-target.json').read_text()).get('target','')
+            else:
+                matches=[]
+                for candidate in list(root.glob('*/route-state.json'))[:32]:
+                    if not re.fullmatch(r'[a-f0-9]{12,64}',candidate.parent.name):continue
+                    try:previous=json.loads(candidate.read_text())
+                    except (OSError,ValueError):continue
+                    if previous.get('domain')==urlsplit(core.get('DOMAIN','')).hostname and previous.get('network')==memory.get('DOCKER_NET') and isinstance(previous.get('host_id'),int):matches.append(candidate.parent.name)
+                if len(matches)==1:target=matches[0]
+        if not isinstance(target,str) or not re.fullmatch(r'[a-f0-9]{12,64}',target):return {}
+        state=json.loads((root/target/'route-state.json').read_text())
+        domain=urlsplit(core.get('DOMAIN','')).hostname
+        if state.get('domain')!=domain or state.get('network')!=memory.get('DOCKER_NET') or not isinstance(state.get('host_id'),int):return {}
+        return {'recorded':True,'target':target,'domain':domain,'email':state.get('email','') if isinstance(state.get('email',''),str) else ''}
+    except (OSError,ValueError,TypeError,AttributeError):return {}

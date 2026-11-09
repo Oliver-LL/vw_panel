@@ -70,6 +70,19 @@ class ManagerTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises(ValueError):
                 self.manager.save('core',dict(self.data,DOMAIN=value))
 
+    def test_permissions_save_does_not_modify_basic_or_secret_settings(self):
+        env=self.configured();update_vars(env,{'ADMIN_TOKEN':'$argon2id$secret'})
+        before=read_vars(env)
+        self.manager.save('permissions',{'SIGNUPS_ALLOWED':False,'INVITATIONS_ALLOWED':False,'SENDS_ALLOWED':True,'DOMAIN':'https://ignored.example.com'})
+        after=read_vars(env)
+        self.assertEqual(after['DOMAIN'],before['DOMAIN']);self.assertEqual(after['ADMIN_TOKEN'],before['ADMIN_TOKEN'])
+        self.assertEqual(after['SIGNUPS_ALLOWED'],'false');self.assertEqual(after['SENDS_ALLOWED'],'true')
+        data={k:v for k,v in self.data.items() if k not in ('SIGNUPS_ALLOWED','INVITATIONS_ALLOWED','SENDS_ALLOWED')}
+        self.manager.save('core',data)
+        self.assertEqual(read_vars(env)['SIGNUPS_ALLOWED'],'false');self.assertEqual(read_vars(env)['SENDS_ALLOWED'],'true')
+        self.assertEqual(self.manager.application_state()['core'],'pending')
+        with self.assertRaises(ValueError):self.manager.save('permissions',{'SIGNUPS_ALLOWED':'false','INVITATIONS_ALLOWED':True,'SENDS_ALLOWED':False})
+
     def test_reject_invalid_values_and_existing_data(self):
         for changes in [dict(directory='/'), dict(directory='/opt/../etc'), dict(DOMAIN='https://bad.com\nrun'),
                         dict(network='x; touch /tmp/evil'), dict(port='90000')]:
