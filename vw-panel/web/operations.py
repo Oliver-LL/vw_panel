@@ -20,8 +20,8 @@ EXTRA_TASKS = {'info': '访问信息与系统状态', 'doctor': '环境体检', 
     'remote-continue': '继续远程存储配置', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
     'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份',
     'upgrade-backup': '升级备份服务', 'existing-npm': '配置现有 NPM 站点'}
-BOOL_KEYS = ('WEBSOCKET_ENABLED', 'WEB_VAULT_ENABLED', 'EMERGENCY_ACCESS_ALLOWED', 'ENABLE_DB_WAL')
-NUM_KEYS = ('ADMIN_RATELIMIT_MAX_BURST', 'ADMIN_RATELIMIT_SECONDS', 'ADMIN_SESSION_LIFETIME')
+BOOL_KEYS = ('ENABLE_WEBSOCKET', 'WEB_VAULT_ENABLED', 'EMERGENCY_ACCESS_ALLOWED', 'ENABLE_DB_WAL')
+NUM_KEYS = ('ADMIN_RATELIMIT_MAX_BURST', 'ADMIN_RATELIMIT_SECONDS', 'ADMIN_SESSION_LIFETIME','LOGIN_RATELIMIT_MAX_BURST','LOGIN_RATELIMIT_SECONDS')
 
 
 def parser_for(path):
@@ -66,7 +66,10 @@ class OperationsMixin:
         except ValueError:
             pass
         uri = urlsplit(smtp.get('smtp', ''))
-        return {'advanced': {k: env.get(k, '') for k in BOOL_KEYS + NUM_KEYS + ('TZ',)},
+        from environment import public_environment
+        advanced={k:env.get(k,'') for k in BOOL_KEYS+NUM_KEYS+('TZ',)}
+        advanced['ENABLE_WEBSOCKET']=env.get('ENABLE_WEBSOCKET',env.get('WEBSOCKET_ENABLED',''))
+        return {'environment':public_environment(self,env,bk),'advanced':advanced,
             'push': {'enabled': env.get('PUSH_ENABLED') == 'true', 'id': env.get('PUSH_INSTALLATION_ID', ''),
                      'key_set': bool(env.get('PUSH_INSTALLATION_KEY'))},
             'notifications': {k: bk.get(k, '') for k in ('MAIL_SMTP_ENABLE', 'MAIL_TO', 'MAIL_WHEN_SUCCESS', 'MAIL_WHEN_FAILURE', 'MAIL_FORCE_THREAD')},
@@ -85,6 +88,7 @@ class OperationsMixin:
             raise ValueError('请先保存密码库配置。')
         if section == 'advanced':
             updates = {}
+            if 'WEBSOCKET_ENABLED' in data and 'ENABLE_WEBSOCKET' not in data:data={**data,'ENABLE_WEBSOCKET':data['WEBSOCKET_ENABLED']}
             for key in BOOL_KEYS:
                 if key in data:
                     if not isinstance(data[key], bool):

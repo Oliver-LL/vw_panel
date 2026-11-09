@@ -1,0 +1,1425 @@
+{
+  "sources": {
+    "core": {
+      "url": "https://github.com/dani-garcia/vaultwarden/blob/main/.env.template",
+      "sha256": "94a7d19c87920035cb46606efbaffb734cb1702ab47ecdb23e324ff0b8c0a17a"
+    },
+    "backup": {
+      "url": "https://github.com/ttionya/vaultwarden-backup#environment-variables",
+      "sha256": "51f984f1ac397f6e00e0fea77ab433ce7fcf33034f0ea27183db33be07fc0110"
+    },
+    "checked_at": "2026-11-09"
+  },
+  "core": [
+    {
+      "key": "DATA_FOLDER",
+      "default": "data",
+      "type": "text",
+      "label": "DATA_FOLDER",
+      "category": "存储与数据库",
+      "help": "与当前容器挂载、转发端口和备份目录绑定，由部署配置管理。"
+    },
+    {
+      "key": "RSA_KEY_FILENAME",
+      "default": "data/rsa_key",
+      "type": "text",
+      "label": "RSA_KEY_FILENAME",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_CACHE_FOLDER",
+      "default": "data/icon_cache",
+      "type": "text",
+      "label": "ICON_CACHE_FOLDER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ATTACHMENTS_FOLDER",
+      "default": "data/attachments",
+      "type": "text",
+      "label": "ATTACHMENTS_FOLDER",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SENDS_FOLDER",
+      "default": "data/sends",
+      "type": "text",
+      "label": "SENDS_FOLDER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "TMP_FOLDER",
+      "default": "data/tmp",
+      "type": "text",
+      "label": "TMP_FOLDER",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "TEMPLATES_FOLDER",
+      "default": "data/templates",
+      "type": "text",
+      "label": "TEMPLATES_FOLDER",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "RELOAD_TEMPLATES",
+      "default": "false",
+      "type": "bool",
+      "label": "RELOAD_TEMPLATES",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "WEB_VAULT_FOLDER",
+      "default": "web-vault/",
+      "type": "text",
+      "label": "WEB_VAULT_FOLDER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "WEB_VAULT_ENABLED",
+      "default": "true",
+      "type": "bool",
+      "label": "WEB_VAULT_ENABLED",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_URL",
+      "default": "sqlite://data/db.sqlite3",
+      "type": "text",
+      "label": "数据库连接地址",
+      "category": "存储与数据库",
+      "help": "外部数据库需要单独准备连接和转储方案；现有本机自动备份不会替你生成外部数据库转储。"
+    },
+    {
+      "key": "ENABLE_DB_WAL",
+      "default": "true",
+      "type": "bool",
+      "label": "ENABLE_DB_WAL",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DB_CONNECTION_RETRIES",
+      "default": "15",
+      "type": "number",
+      "label": "DB_CONNECTION_RETRIES",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_TIMEOUT",
+      "default": "30",
+      "type": "number",
+      "label": "数据库连接超时",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_IDLE_TIMEOUT",
+      "default": "600",
+      "type": "number",
+      "label": "DATABASE_IDLE_TIMEOUT",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_MIN_CONNS",
+      "default": "2",
+      "type": "number",
+      "label": "DATABASE_MIN_CONNS",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_MAX_CONNS",
+      "default": "10",
+      "type": "number",
+      "label": "数据库最大连接数",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DATABASE_CONN_INIT",
+      "default": "",
+      "type": "text",
+      "label": "DATABASE_CONN_INIT",
+      "category": "存储与数据库",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ENABLE_WEBSOCKET",
+      "default": "true",
+      "type": "bool",
+      "label": "ENABLE_WEBSOCKET",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PUSH_ENABLED",
+      "default": "false",
+      "type": "bool",
+      "label": "PUSH_ENABLED",
+      "category": "通知",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PUSH_INSTALLATION_ID",
+      "default": "CHANGEME",
+      "type": "text",
+      "label": "PUSH_INSTALLATION_ID",
+      "category": "通知",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PUSH_INSTALLATION_KEY",
+      "default": "CHANGEME",
+      "type": "text",
+      "label": "PUSH_INSTALLATION_KEY",
+      "category": "通知",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PUSH_RELAY_URI",
+      "default": "https://push.bitwarden.com",
+      "type": "text",
+      "label": "推送中继地址",
+      "category": "通知",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PUSH_IDENTITY_URI",
+      "default": "https://identity.bitwarden.com",
+      "type": "text",
+      "label": "推送身份服务地址",
+      "category": "通知",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "JOB_POLL_INTERVAL_MS",
+      "default": "30000",
+      "type": "number",
+      "label": "JOB_POLL_INTERVAL_MS",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SEND_PURGE_SCHEDULE",
+      "default": "0 5 * * * *",
+      "type": "text",
+      "label": "SEND_PURGE_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "TRASH_PURGE_SCHEDULE",
+      "default": "0 5 0 * * *",
+      "type": "text",
+      "label": "TRASH_PURGE_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INCOMPLETE_2FA_SCHEDULE",
+      "default": "30 * * * * *",
+      "type": "text",
+      "label": "INCOMPLETE_2FA_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMERGENCY_NOTIFICATION_REMINDER_SCHEDULE",
+      "default": "0 3 * * * *",
+      "type": "text",
+      "label": "EMERGENCY_NOTIFICATION_REMINDER_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMERGENCY_REQUEST_TIMEOUT_SCHEDULE",
+      "default": "0 7 * * * *",
+      "type": "text",
+      "label": "EMERGENCY_REQUEST_TIMEOUT_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EVENT_CLEANUP_SCHEDULE",
+      "default": "0 10 0 * * *",
+      "type": "text",
+      "label": "EVENT_CLEANUP_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EVENTS_DAYS_RETAIN",
+      "default": "",
+      "type": "text",
+      "label": "EVENTS_DAYS_RETAIN",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "AUTH_REQUEST_PURGE_SCHEDULE",
+      "default": "30 * * * * *",
+      "type": "text",
+      "label": "AUTH_REQUEST_PURGE_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DUO_CONTEXT_PURGE_SCHEDULE",
+      "default": "30 * * * * *",
+      "type": "text",
+      "label": "DUO_CONTEXT_PURGE_SCHEDULE",
+      "category": "计划任务",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PURGE_INCOMPLETE_SSO_AUTH",
+      "default": "0 20 0 * * *",
+      "type": "text",
+      "label": "PURGE_INCOMPLETE_SSO_AUTH",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DOMAIN",
+      "default": "http://localhost",
+      "type": "text",
+      "label": "DOMAIN",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SENDS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "SENDS_ALLOWED",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "HIBP_API_KEY",
+      "default": "",
+      "type": "text",
+      "label": "HIBP API 密钥",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ORG_ATTACHMENT_LIMIT",
+      "default": "",
+      "type": "text",
+      "label": "组织附件限额",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "USER_ATTACHMENT_LIMIT",
+      "default": "",
+      "type": "text",
+      "label": "个人附件限额",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "USER_SEND_LIMIT",
+      "default": "",
+      "type": "text",
+      "label": "个人 Send 限额",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "TRASH_AUTO_DELETE_DAYS",
+      "default": "",
+      "type": "text",
+      "label": "TRASH_AUTO_DELETE_DAYS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INCOMPLETE_2FA_TIME_LIMIT",
+      "default": "3",
+      "type": "number",
+      "label": "INCOMPLETE_2FA_TIME_LIMIT",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DISABLE_ICON_DOWNLOAD",
+      "default": "false",
+      "type": "bool",
+      "label": "DISABLE_ICON_DOWNLOAD",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SIGNUPS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "SIGNUPS_ALLOWED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SIGNUPS_VERIFY",
+      "default": "false",
+      "type": "bool",
+      "label": "注册邮箱验证",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SIGNUPS_VERIFY_RESEND_TIME",
+      "default": "3600",
+      "type": "number",
+      "label": "验证邮件重发间隔",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SIGNUPS_VERIFY_RESEND_LIMIT",
+      "default": "6",
+      "type": "number",
+      "label": "验证邮件重发上限",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SIGNUPS_DOMAINS_WHITELIST",
+      "default": "example.com,example.net,example.org",
+      "type": "text",
+      "label": "允许注册的邮箱域名",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ORG_EVENTS_ENABLED",
+      "default": "false",
+      "type": "bool",
+      "label": "ORG_EVENTS_ENABLED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ORG_CREATION_USERS",
+      "default": "",
+      "type": "text",
+      "label": "ORG_CREATION_USERS",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INVITATIONS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "INVITATIONS_ALLOWED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INVITATION_ORG_NAME",
+      "default": "Vaultwarden",
+      "type": "text",
+      "label": "INVITATION_ORG_NAME",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INVITATION_EXPIRATION_HOURS",
+      "default": "120",
+      "type": "number",
+      "label": "INVITATION_EXPIRATION_HOURS",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMERGENCY_ACCESS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "EMERGENCY_ACCESS_ALLOWED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_CHANGE_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "允许修改邮箱",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PASSWORD_ITERATIONS",
+      "default": "600000",
+      "type": "number",
+      "label": "PASSWORD_ITERATIONS",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "PASSWORD_HINTS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "PASSWORD_HINTS_ALLOWED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SHOW_PASSWORD_HINT",
+      "default": "false",
+      "type": "bool",
+      "label": "SHOW_PASSWORD_HINT",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "CLIENT_SUPPRESS_ONBOARDING",
+      "default": "false",
+      "type": "bool",
+      "label": "CLIENT_SUPPRESS_ONBOARDING",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "IP_HEADER",
+      "default": "X-Real-IP",
+      "type": "text",
+      "label": "IP_HEADER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "IP_HEADER_TRUSTED_PROXIES",
+      "default": "local",
+      "type": "text",
+      "label": "IP_HEADER_TRUSTED_PROXIES",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_SERVICE",
+      "default": "internal",
+      "type": "text",
+      "label": "ICON_SERVICE",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_REDIRECT_CODE",
+      "default": "302",
+      "type": "number",
+      "label": "ICON_REDIRECT_CODE",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_CACHE_TTL",
+      "default": "2592000",
+      "type": "number",
+      "label": "ICON_CACHE_TTL",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_CACHE_NEGTTL",
+      "default": "259200",
+      "type": "number",
+      "label": "ICON_CACHE_NEGTTL",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ICON_DOWNLOAD_TIMEOUT",
+      "default": "10",
+      "type": "number",
+      "label": "ICON_DOWNLOAD_TIMEOUT",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "HTTP_REQUEST_BLOCK_REGEX",
+      "default": "^(192\\.168\\.0\\.[0-9]+|192\\.168\\.1\\.[0-9]+)$",
+      "type": "text",
+      "label": "HTTP_REQUEST_BLOCK_REGEX",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "HTTP_REQUEST_BLOCK_NON_GLOBAL_IPS",
+      "default": "true",
+      "type": "bool",
+      "label": "HTTP_REQUEST_BLOCK_NON_GLOBAL_IPS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "FILL_ASSIST_RULES_URL",
+      "default": "https://fillassist.bitwarden.com",
+      "type": "text",
+      "label": "FILL_ASSIST_RULES_URL",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EXPERIMENTAL_CLIENT_FEATURE_FLAGS",
+      "default": "",
+      "type": "text",
+      "label": "EXPERIMENTAL_CLIENT_FEATURE_FLAGS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "REQUIRE_DEVICE_EMAIL",
+      "default": "false",
+      "type": "bool",
+      "label": "REQUIRE_DEVICE_EMAIL",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EXTENDED_LOGGING",
+      "default": "true",
+      "type": "bool",
+      "label": "EXTENDED_LOGGING",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "LOG_TIMESTAMP_FORMAT",
+      "default": "%Y-%m-%d %H:%M:%S.%3f",
+      "type": "text",
+      "label": "LOG_TIMESTAMP_FORMAT",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "USE_SYSLOG",
+      "default": "false",
+      "type": "bool",
+      "label": "USE_SYSLOG",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "LOG_FILE",
+      "default": "/path/to/log",
+      "type": "text",
+      "label": "LOG_FILE",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "LOG_LEVEL",
+      "default": "info",
+      "type": "text",
+      "label": "日志级别",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ADMIN_TOKEN",
+      "default": "$argon2id$v=19$m=65540,t=3,p=4$MmeKRnGK5RW5mJS7h3TOL89GrpLPXJPAtTK8FTqj9HM$DqsstvoSAETl9YhnsXbf43WeaUwJC6JhViIvuPoig78",
+      "type": "text",
+      "label": "ADMIN_TOKEN",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DISABLE_ADMIN_TOKEN",
+      "default": "false",
+      "type": "bool",
+      "label": "DISABLE_ADMIN_TOKEN",
+      "category": "其他",
+      "help": "开启会取消管理后台口令校验，请先了解上游说明再修改。"
+    },
+    {
+      "key": "ADMIN_RATELIMIT_SECONDS",
+      "default": "300",
+      "type": "number",
+      "label": "ADMIN_RATELIMIT_SECONDS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ADMIN_RATELIMIT_MAX_BURST",
+      "default": "3",
+      "type": "number",
+      "label": "ADMIN_RATELIMIT_MAX_BURST",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ADMIN_SESSION_LIFETIME",
+      "default": "20",
+      "type": "number",
+      "label": "ADMIN_SESSION_LIFETIME",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ALLOWED_IFRAME_ANCESTORS",
+      "default": "",
+      "type": "text",
+      "label": "ALLOWED_IFRAME_ANCESTORS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ALLOWED_CONNECT_SRC",
+      "default": "",
+      "type": "text",
+      "label": "ALLOWED_CONNECT_SRC",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "LOGIN_RATELIMIT_SECONDS",
+      "default": "60",
+      "type": "number",
+      "label": "用户登录限流周期（秒）",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "LOGIN_RATELIMIT_MAX_BURST",
+      "default": "10",
+      "type": "number",
+      "label": "用户登录最大尝试次数",
+      "category": "日志",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "UNAUTHENTICATED_RATELIMIT_SECONDS",
+      "default": "60",
+      "type": "number",
+      "label": "未认证请求限流周期",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "UNAUTHENTICATED_RATELIMIT_MAX_BURST",
+      "default": "50",
+      "type": "number",
+      "label": "未认证请求上限",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ORG_GROUPS_ENABLED",
+      "default": "false",
+      "type": "bool",
+      "label": "ORG_GROUPS_ENABLED",
+      "category": "注册与权限",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EXPERIMENTAL_CUSTOM_ROLES",
+      "default": "false",
+      "type": "bool",
+      "label": "EXPERIMENTAL_CUSTOM_ROLES",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "INCREASE_NOTE_SIZE_LIMIT",
+      "default": "false",
+      "type": "bool",
+      "label": "INCREASE_NOTE_SIZE_LIMIT",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ENFORCE_SINGLE_ORG_WITH_RESET_PW_POLICY",
+      "default": "false",
+      "type": "bool",
+      "label": "ENFORCE_SINGLE_ORG_WITH_RESET_PW_POLICY",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DNS_PREFER_IPV6",
+      "default": "false",
+      "type": "bool",
+      "label": "DNS_PREFER_IPV6",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_ENABLED",
+      "default": "false",
+      "type": "bool",
+      "label": "启用单点登录",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_ONLY",
+      "default": "false",
+      "type": "bool",
+      "label": "SSO_ONLY",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_SIGNUPS_ALLOWED",
+      "default": "true",
+      "type": "bool",
+      "label": "SSO_SIGNUPS_ALLOWED",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_SIGNUPS_MATCH_EMAIL",
+      "default": "true",
+      "type": "bool",
+      "label": "SSO_SIGNUPS_MATCH_EMAIL",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION",
+      "default": "false",
+      "type": "bool",
+      "label": "SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_AUTHORITY",
+      "default": "https://auth.example.com",
+      "type": "text",
+      "label": "单点登录服务地址",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_SCOPES",
+      "default": "email profile",
+      "type": "text",
+      "label": "SSO_SCOPES",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_AUTHORIZE_EXTRA_PARAMS",
+      "default": "access_type=offline&prompt=consent",
+      "type": "text",
+      "label": "SSO_AUTHORIZE_EXTRA_PARAMS",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_PKCE",
+      "default": "true",
+      "type": "bool",
+      "label": "SSO_PKCE",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_AUDIENCE_TRUSTED",
+      "default": "^$",
+      "type": "text",
+      "label": "SSO_AUDIENCE_TRUSTED",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_CLIENT_ID",
+      "default": "11111",
+      "type": "number",
+      "label": "SSO 客户端 ID",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_CLIENT_SECRET",
+      "default": "AAAAAAAAAAAAAAAAAAAAAAAA",
+      "type": "text",
+      "label": "SSO 客户端密钥",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_MASTER_PASSWORD_POLICY",
+      "default": "{\"enforceOnLogin\":false,\"minComplexity\":3,\"minLength\":12,\"requireLower\":false,\"requireNumbers\":false,\"requireSpecial\":false,\"requireUpper\":false}",
+      "type": "text",
+      "label": "SSO_MASTER_PASSWORD_POLICY",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_AUTH_ONLY_NOT_SESSION",
+      "default": "false",
+      "type": "bool",
+      "label": "SSO_AUTH_ONLY_NOT_SESSION",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_CLIENT_CACHE_EXPIRATION",
+      "default": "0",
+      "type": "number",
+      "label": "SSO_CLIENT_CACHE_EXPIRATION",
+      "category": "单点登录",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SSO_DEBUG_TOKENS",
+      "default": "false",
+      "type": "bool",
+      "label": "SSO_DEBUG_TOKENS",
+      "category": "单点登录",
+      "help": "调试输出可能包含敏感信息，仅排障时使用并及时关闭。"
+    },
+    {
+      "key": "YUBICO_CLIENT_ID",
+      "default": "11111",
+      "type": "number",
+      "label": "YUBICO_CLIENT_ID",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "YUBICO_SECRET_KEY",
+      "default": "AAAAAAAAAAAAAAAAAAAAAAAA",
+      "type": "text",
+      "label": "YUBICO_SECRET_KEY",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "YUBICO_SERVER",
+      "default": "http://yourdomain.com/wsapi/2.0/verify",
+      "type": "text",
+      "label": "YUBICO_SERVER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DUO_IKEY",
+      "default": "<Client ID>",
+      "type": "text",
+      "label": "DUO_IKEY",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DUO_SKEY",
+      "default": "<Client Secret>",
+      "type": "text",
+      "label": "DUO_SKEY",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DUO_HOST",
+      "default": "<API Hostname>",
+      "type": "text",
+      "label": "DUO_HOST",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_TOKEN_SIZE",
+      "default": "6",
+      "type": "number",
+      "label": "EMAIL_TOKEN_SIZE",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_EXPIRATION_TIME",
+      "default": "600",
+      "type": "number",
+      "label": "EMAIL_EXPIRATION_TIME",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_ATTEMPTS_LIMIT",
+      "default": "3",
+      "type": "number",
+      "label": "EMAIL_ATTEMPTS_LIMIT",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_2FA_ENFORCE_ON_VERIFIED_INVITE",
+      "default": "false",
+      "type": "bool",
+      "label": "EMAIL_2FA_ENFORCE_ON_VERIFIED_INVITE",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "EMAIL_2FA_AUTO_FALLBACK",
+      "default": "false",
+      "type": "bool",
+      "label": "邮件双因素回退",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "DISABLE_2FA_REMEMBER",
+      "default": "false",
+      "type": "bool",
+      "label": "DISABLE_2FA_REMEMBER",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "TWO_FACTOR_REMEMBER_DAYS",
+      "default": "30",
+      "type": "number",
+      "label": "TWO_FACTOR_REMEMBER_DAYS",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "AUTHENTICATOR_DISABLE_TIME_DRIFT",
+      "default": "false",
+      "type": "bool",
+      "label": "AUTHENTICATOR_DISABLE_TIME_DRIFT",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_HOST",
+      "default": "smtp.domain.tld",
+      "type": "text",
+      "label": "SMTP_HOST",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_FROM",
+      "default": "vaultwarden@domain.tld",
+      "type": "text",
+      "label": "SMTP_FROM",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_FROM_NAME",
+      "default": "Vaultwarden",
+      "type": "text",
+      "label": "发件人显示名称",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "default": "username",
+      "type": "text",
+      "label": "SMTP_USERNAME",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "default": "password",
+      "type": "text",
+      "label": "SMTP_PASSWORD",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_TIMEOUT",
+      "default": "15",
+      "type": "number",
+      "label": "邮件连接超时",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_SECURITY",
+      "default": "starttls",
+      "type": "text",
+      "label": "SMTP_SECURITY",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_PORT",
+      "default": "587",
+      "type": "number",
+      "label": "SMTP_PORT",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "USE_SENDMAIL",
+      "default": "false",
+      "type": "bool",
+      "label": "USE_SENDMAIL",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SENDMAIL_COMMAND",
+      "default": "/path/to/sendmail",
+      "type": "text",
+      "label": "SENDMAIL_COMMAND",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_AUTH_MECHANISM",
+      "default": "",
+      "type": "text",
+      "label": "SMTP_AUTH_MECHANISM",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "HELO_NAME",
+      "default": "",
+      "type": "text",
+      "label": "HELO_NAME",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_EMBED_IMAGES",
+      "default": "true",
+      "type": "bool",
+      "label": "邮件中嵌入图片",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_DEBUG",
+      "default": "false",
+      "type": "bool",
+      "label": "SMTP_DEBUG",
+      "category": "邮件",
+      "help": "调试输出可能包含敏感信息，仅排障时使用并及时关闭。"
+    },
+    {
+      "key": "SMTP_ACCEPT_INVALID_CERTS",
+      "default": "false",
+      "type": "bool",
+      "label": "SMTP_ACCEPT_INVALID_CERTS",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "SMTP_ACCEPT_INVALID_HOSTNAMES",
+      "default": "false",
+      "type": "bool",
+      "label": "SMTP_ACCEPT_INVALID_HOSTNAMES",
+      "category": "邮件",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "ROCKET_ADDRESS",
+      "default": "0.0.0.0",
+      "type": "text",
+      "label": "ROCKET_ADDRESS",
+      "category": "其他",
+      "help": "与当前容器挂载、转发端口和备份目录绑定，由部署配置管理。"
+    },
+    {
+      "key": "ROCKET_PORT",
+      "default": "8000",
+      "type": "number",
+      "label": "ROCKET_PORT",
+      "category": "其他",
+      "help": "与当前容器挂载、转发端口和备份目录绑定，由部署配置管理。"
+    },
+    {
+      "key": "ROCKET_TLS",
+      "default": "{certs=\"/path/to/certs.pem\",key=\"/path/to/key.pem\"}",
+      "type": "text",
+      "label": "ROCKET_TLS",
+      "category": "其他",
+      "help": "与当前容器挂载、转发端口和备份目录绑定，由部署配置管理。"
+    },
+    {
+      "key": "TZ",
+      "default": "Asia/Shanghai",
+      "type": "text",
+      "label": "TZ",
+      "category": "其他",
+      "help": "Vaultwarden 官方环境变量。"
+    },
+    {
+      "key": "WEBSOCKET_ENABLED",
+      "default": "true",
+      "type": "bool",
+      "label": "WEBSOCKET_ENABLED",
+      "category": "其他",
+      "help": "旧名称，仅用于兼容读取。请使用运行设置中的 ENABLE_WEBSOCKET。"
+    }
+  ],
+  "backup": [
+    {
+      "key": "RCLONE_REMOTE_NAME",
+      "default": "BitwardenBackup",
+      "type": "text",
+      "label": "RCLONE_REMOTE_NAME",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "RCLONE_REMOTE_DIR",
+      "default": "/BitwardenBackup/",
+      "type": "text",
+      "label": "RCLONE_REMOTE_DIR",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "RCLONE_GLOBAL_FLAG",
+      "default": "''",
+      "type": "text",
+      "label": "Rclone 额外参数",
+      "category": "备份",
+      "help": "Rclone 额外参数；不要加入改变命令输出格式的 -P 等参数。可能含凭据，保存后不回显。"
+    },
+    {
+      "key": "CRON",
+      "default": "5 * * * *",
+      "type": "text",
+      "label": "CRON",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "ZIP_ENABLE",
+      "default": "TRUE",
+      "type": "bool",
+      "label": "启用打包压缩",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "ZIP_PASSWORD",
+      "default": "WHEREISMYPASSWORD?",
+      "type": "text",
+      "label": "ZIP_PASSWORD",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "ZIP_TYPE",
+      "default": "zip",
+      "type": "text",
+      "label": "备份压缩格式",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "BACKUP_KEEP_DAYS",
+      "default": "0",
+      "type": "number",
+      "label": "BACKUP_KEEP_DAYS",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "BACKUP_FILE_SUFFIX",
+      "default": "%Y%m%d",
+      "type": "text",
+      "label": "备份文件名后缀",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "TIMEZONE",
+      "default": "UTC",
+      "type": "text",
+      "label": "TIMEZONE",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "DISPLAY_NAME",
+      "default": "vaultwarden",
+      "type": "text",
+      "label": "备份显示名称",
+      "category": "备份",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "DATA_DIR",
+      "default": "/bitwarden/data",
+      "type": "text",
+      "label": "DATA_DIR",
+      "category": "存储与数据库",
+      "help": "与当前容器挂载、转发端口和备份目录绑定，由部署配置管理。"
+    },
+    {
+      "key": "BACKUP_FILE_DATE",
+      "default": "%Y%m%d",
+      "type": "text",
+      "label": "BACKUP_FILE_DATE",
+      "category": "备份",
+      "help": "旧版兼容项；面板使用 BACKUP_FILE_SUFFIX 统一控制后缀，优先级更高。"
+    },
+    {
+      "key": "BACKUP_FILE_DATE_SUFFIX",
+      "default": "''",
+      "type": "text",
+      "label": "BACKUP_FILE_DATE_SUFFIX",
+      "category": "备份",
+      "help": "旧版兼容项；面板使用 BACKUP_FILE_SUFFIX 统一控制后缀，优先级更高。"
+    },
+    {
+      "key": "DATA_DB",
+      "default": "${DATA_DIR}/db.sqlite3",
+      "type": "text",
+      "label": "备份数据库文件路径",
+      "category": "存储与数据库",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "DATA_RSAKEY",
+      "default": "${DATA_DIR}/rsa_key",
+      "type": "text",
+      "label": "备份 RSA 密钥路径",
+      "category": "存储与数据库",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "DATA_ATTACHMENTS",
+      "default": "${DATA_DIR}/attachments",
+      "type": "text",
+      "label": "备份附件路径",
+      "category": "存储与数据库",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "DATA_SENDS",
+      "default": "${DATA_DIR}/sends",
+      "type": "text",
+      "label": "备份 Send 路径",
+      "category": "存储与数据库",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "PING_URL",
+      "default": "",
+      "type": "text",
+      "label": "备份完成通知地址",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_CURL_OPTIONS",
+      "default": "",
+      "type": "text",
+      "label": "PING_URL_CURL_OPTIONS",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_START",
+      "default": "",
+      "type": "text",
+      "label": "备份开始通知地址",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_START_CURL_OPTIONS",
+      "default": "",
+      "type": "text",
+      "label": "PING_URL_WHEN_START_CURL_OPTIONS",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_SUCCESS",
+      "default": "",
+      "type": "text",
+      "label": "备份成功通知地址",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_SUCCESS_CURL_OPTIONS",
+      "default": "",
+      "type": "text",
+      "label": "PING_URL_WHEN_SUCCESS_CURL_OPTIONS",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_FAILURE",
+      "default": "",
+      "type": "text",
+      "label": "备份失败通知地址",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "PING_URL_WHEN_FAILURE_CURL_OPTIONS",
+      "default": "",
+      "type": "text",
+      "label": "PING_URL_WHEN_FAILURE_CURL_OPTIONS",
+      "category": "通知",
+      "help": "备份状态通知；URL 可含访问令牌，保存后不回显。支持上游 %{subject} 与 %{content} 占位符。"
+    },
+    {
+      "key": "MAIL_SMTP_ENABLE",
+      "default": "",
+      "type": "bool",
+      "label": "MAIL_SMTP_ENABLE",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "MAIL_SMTP_VARIABLES",
+      "default": "",
+      "type": "text",
+      "label": "MAIL_SMTP_VARIABLES",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "MAIL_TO",
+      "default": "",
+      "type": "text",
+      "label": "MAIL_TO",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "MAIL_WHEN_SUCCESS",
+      "default": "",
+      "type": "bool",
+      "label": "MAIL_WHEN_SUCCESS",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "MAIL_WHEN_FAILURE",
+      "default": "",
+      "type": "bool",
+      "label": "MAIL_WHEN_FAILURE",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    },
+    {
+      "key": "MAIL_FORCE_THREAD",
+      "default": "",
+      "type": "bool",
+      "label": "MAIL_FORCE_THREAD",
+      "category": "邮件",
+      "help": "备份镜像官方环境变量。"
+    }
+  ]
+}

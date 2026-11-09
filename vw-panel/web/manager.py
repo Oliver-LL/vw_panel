@@ -188,7 +188,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 'network': memory.get('DOCKER_NET', 'vaultwarden_net'), 'proxy_target':memory.get('PANEL_PROXY_TARGET',''),
                 'core': {key: core.get(key, '') for key in safe_keys},
                 'admin_set': bool(core.get('ADMIN_TOKEN')), 'smtp_password_set': bool(core.get('SMTP_PASSWORD')),
-                'backup': {key: bk.get(key, '') for key in ('CRON', 'BACKUP_KEEP_DAYS', 'TIMEZONE')},
+                'backup': {**{key: bk.get(key, '') for key in ('CRON','BACKUP_KEEP_DAYS','TIMEZONE','ZIP_TYPE','BACKUP_FILE_SUFFIX','DISPLAY_NAME')},'ZIP_ENABLE':bk.get('ZIP_ENABLE','TRUE').upper()!='FALSE'},
                 'extras': self.extended_config(), 'zip_password_set': bool(bk.get('ZIP_PASSWORD')), 'remote': self.remote_info(), 'files': self.files()}
 
     def remote_info(self):
@@ -224,7 +224,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 result = self._save(section, data)
             finally:
                 self.note_changes(before)
-            scope = 'core' if section in ('core','permissions','mail','advanced','push') else 'backup'
+            scope = 'core' if section in ('core','permissions','mail','advanced','push','core-env') else 'backup'
             state = self.application_state()[scope]
             if scope=='core' and not read_vars(self.paths()[0]/'vaultwarden.env').get('ADMIN_TOKEN'):
                 result['message']='配置已保存。设置管理口令后即可部署密码库。'
@@ -240,6 +240,10 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         app, backup = self.paths()
         if section == 'core':
             return self.save_core(data, app)
+        if section in ('core-env','backup-env'):
+            from environment import save_environment
+            save_environment(self,'core' if section=='core-env' else 'backup',data)
+            return {'ok':True,'message':'环境配置已保存。'}
         if section == 'permissions':
             if not (app/'vaultwarden.env').exists():raise ValueError('请先保存基本信息。')
             updates={}
@@ -283,16 +287,27 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             updates = {'CRON': cron, 'TIMEZONE': timezone,
                        'BACKUP_KEEP_DAYS': number(data.get('BACKUP_KEEP_DAYS'), '保留天数', 0, 3650)}
             old = read_vars(backup / 'backup.env')
-            if data.get('ZIP_PASSWORD'):
+            enabled=data.get('ZIP_ENABLE',old.get('ZIP_ENABLE','TRUE').upper()!='FALSE')
+            if not isinstance(enabled,bool):raise ValueError('打包压缩开关不正确。')
+            if 'ZIP_ENABLE' in data:updates['ZIP_ENABLE']='TRUE' if enabled else 'FALSE'
+            if 'ZIP_TYPE' in data:
+                if data['ZIP_TYPE'] not in ('zip','7z'):raise ValueError('请选择 zip 或 7z。')
+                updates['ZIP_TYPE']=data['ZIP_TYPE']
+            if 'BACKUP_FILE_SUFFIX' in data:
+                suffix=text(data['BACKUP_FILE_SUFFIX'],'文件名后缀',100)
+                if not re.fullmatch(r'[A-Za-z0-9_.% -]{1,100}',suffix):raise ValueError('文件名后缀不正确，不能包含目录或控制字符。')
+                updates['BACKUP_FILE_SUFFIX']=suffix
+            if 'DISPLAY_NAME' in data:updates['DISPLAY_NAME']=text(data['DISPLAY_NAME'],'备份显示名称',100)
+            if enabled and data.get('ZIP_PASSWORD'):
                 password = secret_text(data['ZIP_PASSWORD'], '备份密码')
                 if len(password) < 12:
                     raise ValueError('备份密码至少 12 个字符。')
                 updates['ZIP_PASSWORD'] = password
-            elif not old.get('ZIP_PASSWORD'):
+            elif enabled and not old.get('ZIP_PASSWORD'):
                 raise ValueError('首次配置请设置备份加密密码。')
             if not (backup / 'docker-compose.yml').exists():
-                updates.update(RCLONE_REMOTE_NAME='BitwardenBackup', RCLONE_REMOTE_DIR='/bitwarden/backup/archive',
-                               BACKUP_FILE_SUFFIX='%Y%m%d-%H%M%S')
+                updates.update(RCLONE_REMOTE_NAME='BitwardenBackup', RCLONE_REMOTE_DIR='/bitwarden/backup/archive')
+                updates.setdefault('BACKUP_FILE_SUFFIX','%Y%m%d-%H%M%S')
                 for name in ('backups', 'vw-backup-config/rclone'):
                     (backup / name).mkdir(parents=True, exist_ok=True)
                 write_private(backup / 'vw-backup-config/rclone/rclone.conf', '[BitwardenBackup]\ntype = local\n')
@@ -485,9 +500,10 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         if not secret:
             # Docker output may contain configuration secrets. Redact known env values.
             app, backup = self.paths()
+            from environment import sensitive
             for path in (app / 'vaultwarden.env', backup / 'backup.env'):
                 for key, value in read_vars(path).items():
-                    if any(word in key for word in ('TOKEN', 'PASSWORD', 'SECRET', 'KEY', 'SMTP_VARIABLES')) and value:
+                    if sensitive(key,value) and value:
                         raw = raw.replace(value, '[已隐藏]').replace(value.replace('$$', '$'), '[已隐藏]')
             if read_vars(self.memory).get('PANEL_PROXY_KIND') == 'npm':
                 password = self.npm_credentials()['password']
