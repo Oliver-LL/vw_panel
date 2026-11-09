@@ -489,12 +489,14 @@ function renderPresentation(){
     backupStart.disabled=taskRunning||backupUnknown||prerequisite||!cfg.backup_configured||hasUnsaved('backup');
     backupStart.className=backupActive?'secondary':'primary';
     const backupNow=$('backup-service').querySelector('[data-task="backup-now"]');backupNow.className=backupActive?'primary':'secondary';backupNow.hidden=!backup;
-    $('backup-service').querySelector('.backup-maintenance').hidden=!backup;
-    $('backup-service').querySelector('[data-task="upgrade-backup"]').disabled=taskRunning||backupUnknown||!backup;
+
+    $('backup-maintenance').querySelector('[data-task="upgrade-backup"]').disabled=taskRunning||backupUnknown||!backup;
 
     for(const button of document.querySelectorAll('[data-task="backup-stop"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'暂停计划任务，保留备份文件':'备份服务当前未运行'}
     for(const button of document.querySelectorAll('[data-task="backup-now"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'执行一次备份':'请先启动备份服务';const caption=button.querySelector('small');if(caption)caption.textContent=backupActive?'立即生成一份加密备份':'启动备份服务后可手动执行'}
     for(const button of document.querySelectorAll('[data-task="stop"]'))button.disabled=taskRunning||!active;
+    $('backup-maintenance').querySelector('small').textContent=backup?'升级、暂停与卸载备份服务，不影响密码库主服务。':'备份服务尚未启用；启用后可升级或暂停，已有备份配置仍可卸载。';
+    document.querySelectorAll('[data-uninstall]').forEach(button=>button.disabled=taskRunning||panelUpdating||(button.dataset.uninstall==='core'?!cfg.configured:!cfg.backup_configured));
     if(settingsSnapshot){const count=settingsSnapshot.origins.length;const heading=$('domain-form').closest('.config-group')?.querySelector('.card-heading');if(heading){heading.querySelector('h2').textContent=count?'允许访问的面板域名':'通过自己的域名访问面板';heading.querySelector('p').textContent=count?'已允许 '+count+' 个域名。DNS 和 HTTPS 反向代理需独立配置与确认。':'如需使用域名，先添加访问地址，再配置 DNS 和 HTTPS 反向代理。'}}
     for(const button of document.querySelectorAll('.action-card[data-task="deploy"]')){
         button.querySelector('strong').textContent=active?'应用密码库配置':core?'启动密码库':'部署密码库';

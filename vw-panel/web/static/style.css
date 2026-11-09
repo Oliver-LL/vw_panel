@@ -106,3 +106,17 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 #backup-prerequisite{margin-bottom:18px}#backup-prerequisite a{color:var(--accent);text-decoration:underline}
 .service-maintenance>summary{cursor:pointer;font-size:13px;font-weight:600}.service-maintenance .button-row{margin-bottom:0}
 @media(max-width:760px){nav{display:block;overflow:visible}nav>a{display:inline-flex}nav .nav-group{display:block;margin-top:3px}.nav-group>summary{padding:9px 13px}.nav-group>div{flex-direction:row;flex-wrap:wrap}.nav-group a{padding:10px 13px}}
+
+.service-maintenance{padding:0;overflow:hidden;margin-top:20px}
+.service-maintenance>summary{display:flex;align-items:center;gap:13px;padding:22px 25px;list-style:none;cursor:pointer}
+.service-maintenance>summary::-webkit-details-marker{display:none}
+.maintenance-icon{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:34px;height:34px;border-radius:10px;background:var(--purple-light);color:var(--accent);font-size:17px}
+.maintenance-heading{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+.maintenance-heading strong{font-size:14px;color:var(--ink);font-weight:600}
+.maintenance-heading small{font-size:11px;color:var(--muted);font-weight:400;line-height:1.6}
+.maintenance-chevron{color:#a19ab8;font-size:14px}.maintenance-chevron:after{content:'⌄'}.service-maintenance[open] .maintenance-chevron:after{content:'⌃'}
+.maintenance-body{border-top:1px solid var(--line);padding:0 25px}
+.maintenance-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:19px 0;border-bottom:1px solid var(--line)}
+.maintenance-row:last-child{border-bottom:0}.maintenance-row h3{font-size:13px;font-weight:550;margin:0 0 6px}.maintenance-row p{font-size:11px;color:var(--muted)}
+.maintenance-row>button{flex-shrink:0;min-width:135px}.maintenance-row>div{min-width:0}
+@media(max-width:760px){.service-maintenance>summary{padding:20px 18px}.maintenance-body{padding:0 18px}.maintenance-row{align-items:stretch;flex-direction:column;gap:13px}.maintenance-row>button{align-self:flex-end;min-width:130px}}

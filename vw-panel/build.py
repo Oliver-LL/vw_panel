@@ -16,7 +16,7 @@ paths = ['panel-cli.sh', 'vw_web.sh', 'vw_original.sh', 'web/server.py', 'web/se
 source = hashlib.sha256()
 for name in paths + ['installer-header.sh', 'build.py']:
     source.update(name.encode() + b'\0' + (ROOT / name).read_bytes() + b'\0')
-version = {'version': '0.7.0', 'build_id': source.hexdigest()}
+version = {'version': '0.7.1', 'build_id': source.hexdigest()}
 (ROOT / 'version.json').write_text(json.dumps(version, sort_keys=True) + '\n')
 paths.append('version.json')
 buffer = io.BytesIO()

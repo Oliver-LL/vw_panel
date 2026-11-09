@@ -134,9 +134,16 @@ await run(`await api('test-state',{proxyEnvironment:{available:true,complete:tru
 await run(`document.querySelector('#core-form [name=DOMAIN]').value='https://vault.example.com';document.querySelector('#core-form [name=SERVER_ADMIN_EMAIL]').value='admin@example.com';document.querySelector('#core-form').requestSubmit()`);await sleep(300);if(saved[0]?.path!=='/api/config/core'||saved[0].data.SIGNUPS_ALLOWED!==true)throw Error('Core form did not submit correctly');
 await run(`location.hash='mail'`);await sleep(100);await shot('mail');await run(`document.querySelector('#mail-form [name=SMTP_HOST]').value='smtp.example.com';document.querySelector('#mail-form').requestSubmit()`);await sleep(250);if(!saved.find(x=>x.path==='/api/config/mail'))throw Error('Mail form not saved');
 await run(`location.hash='backup'`);await sleep(100);await shot('backup-mobile',390,1000);
-if(!await run(`document.querySelector('#backup-service').nextElementSibling.id==='backup-prerequisite'&&!document.querySelector('#backup-service .backup-maintenance').open&&document.querySelector('#backup-service-start').disabled`))throw Error('Backup service initial layout or readiness is wrong');
+if(!await run(`document.querySelector('#backup-service').nextElementSibling.id==='backup-prerequisite'&&!document.getElementById('backup-maintenance').open&&document.querySelector('#backup-service-start').disabled`))throw Error('Backup service initial layout or readiness is wrong');
 if(!await run(`Array.from(document.querySelector('[data-view=backup]').children).every(node=>!node.matches('.button-row'))`))throw Error('Loose backup toolbar still exists');
 await shot('backup-service-initial',1440,1100);
+if(!await run(`document.getElementById('backup-maintenance').closest('[data-view]').dataset.view==='backup'&&!document.getElementById('backup-maintenance').hidden&&document.getElementById('core-maintenance').closest('[data-view]').dataset.view==='vault'&&document.querySelectorAll('#core-maintenance .maintenance-row').length===4&&document.querySelectorAll('#backup-maintenance .maintenance-row').length===3`))throw Error('Consistent maintenance entry missing');
+await run(`document.getElementById('backup-maintenance').open=true;document.getElementById('backup-maintenance').scrollIntoView({block:'center'})`);await shot('backup-maintenance-new',1440,1000);await shot('backup-maintenance-new-mobile',390,1000);
+if(await run(`document.documentElement.scrollWidth>innerWidth`))throw Error('Backup maintenance overflows mobile');
+await run(`document.getElementById('backup-maintenance').open=false;location.hash='vault';document.getElementById('core-maintenance').open=true;document.getElementById('core-maintenance').scrollIntoView({block:'center'})`);await sleep(100);await shot('core-maintenance-new',1440,1000);await shot('core-maintenance-new-mobile',390,1000);
+if(await run(`document.documentElement.scrollWidth>innerWidth`))throw Error('Core maintenance overflows mobile');
+await run(`document.getElementById('core-maintenance').open=false;location.hash='backup'`);await sleep(100);
+
 if(!await run(`document.querySelectorAll('nav [data-page=backup]').length===1&&!document.querySelector('nav [data-page=restore]')&&!document.querySelector('[data-view=restore]')&&document.querySelector('nav [data-page=backup]').textContent.includes('备份设置')&&['upload-form','restore-form','backup-files'].every(id=>document.getElementById(id).closest('[data-view]').dataset.view==='archives')`))throw Error('Backup submenus are not organized correctly');
 if(!await run(`!document.getElementById('restore-files')&&!document.getElementById('restore-form').closest('.config-group').open`))throw Error('Duplicate files list or recovery expanded by default');
 if(!await run(`new URL(document.querySelector('#backup-files a').href).searchParams.get('file')==='backup-20261107.zip'`))throw Error('Backup download file is incorrect');
@@ -191,8 +198,8 @@ await run(`location.hash='backup'`);await sleep(100);
 if(!await run(`document.getElementById('backup-service-status').textContent==='运行中'&&!document.querySelector('#backup-service [data-task="backup-now"]').disabled`))throw Error('Backup service status did not follow running container');
 await shot('backup-service-running',1440,1100);await shot('backup-service-running-mobile',390,1000);
 if(await run(`document.documentElement.scrollWidth>innerWidth`))throw Error('Backup service overflows mobile');
-await run(`document.querySelector('#backup-service .backup-maintenance').open=true`);await shot('backup-service-maintenance',1440,1100);
-await run(`document.querySelector('#backup-service .backup-maintenance').open=false;location.hash='overview'`);
+await run(`document.getElementById('backup-maintenance').open=true`);await shot('backup-service-maintenance',1440,1100);
+await run(`document.getElementById('backup-maintenance').open=false;location.hash='overview'`);
 
 await run(`document.querySelector('[data-uninstall=core]').click()`);await sleep(100);
 if(!await run(`location.hash==='#cleanup'&&document.getElementById('remove-form').elements.scope.value==='core'&&document.getElementById('remove-form').elements.delete_data.value==='keep'`))throw Error('Core uninstall entry did not select core with data retained');
