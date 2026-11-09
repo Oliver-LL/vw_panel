@@ -268,8 +268,10 @@ def target_dir(preset_id, values):
 
 def verify_target(preset_id, name, values):
     if preset_id in ('r2', 's3'):
-        path = values.get('path', '')
-        return name + ':' + values['bucket'] + ('/' + path if path else '')
+        # The backup path is created by the first upload. Verify the bucket root:
+        # rclone HEADs the leaf path on NewFs, and R2/S3 may answer 403 for a
+        # not-yet-existing key, which would be mistaken for an auth failure.
+        return name + ':' + values['bucket']
     return name + ':' + target_dir(preset_id, values)
 
 

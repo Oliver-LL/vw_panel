@@ -162,7 +162,8 @@ class OperationsTests(unittest.TestCase):
         self.assertIn('secret_access_key = obscured-r2-secret',written)
         self.assertIn('endpoint = https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',written)
         self.assertIn('no_check_bucket = true',written)
-        self.assertEqual(probed[0][0],['lsf','R2Backup:vw-backup/VaultBackup','--max-depth','1'])
+        # The subpath is created by the first backup, so verification uses the bucket root.
+        self.assertEqual(probed[0][0],['lsf','R2Backup:vw-backup','--max-depth','1'])
         self.assertIn('[R2Backup]',probed[0][1])
         self.assertIn('obscured-r2-secret',probed[0][2])
         env=read_vars(backup/'backup.env')
@@ -368,7 +369,8 @@ class OperationsTests(unittest.TestCase):
         self.assertIn('endpoint = https://minio.example.com',written)
         self.assertIn('region = us-east-1',written)
         self.assertIn('secret_access_key = obscured-minio',written)
-        self.assertEqual(probed[0][0],['lsf','MinioCloud:vw-backup/VaultBackup','--max-depth','1'])
+        # The subpath is created by the first backup, so verification uses the bucket root.
+        self.assertEqual(probed[0][0],['lsf','MinioCloud:vw-backup','--max-depth','1'])
         self.assertEqual(probed[0][1],'S3 兼容对象存储')
         env=read_vars(backup/'backup.env')
         self.assertEqual(env['RCLONE_REMOTE_NAME_1'],'MinioCloud')
