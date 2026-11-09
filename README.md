@@ -91,3 +91,7 @@ curl -fL --retry 3 https://raw.githubusercontent.com/Oliver-LL/vw_web/main/vw-pa
 ## 0.6.8 推送凭据按需显示
 
 启用官方推送后才显示 Installation ID、Installation Key 和获取说明，可点击链接前往 Bitwarden 官方申请页面。关闭开关不会清空未保存输入，保存关闭时仍按原逻辑移除配置。
+
+## 0.6.9 卸载交互简化
+
+网页卸载无需输入 DELETE，选择服务范围和数据处理方式后点击确认。默认保留配置与数据，永久删除仅影响所选服务；确认提示显示具体影响范围。
