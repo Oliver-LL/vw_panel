@@ -184,11 +184,13 @@ class ManagedProxyMixin:
         for name, value in files.items():write_private(folder / name, value)
         for name in ('data', 'letsencrypt', 'webroot'):(folder / name).mkdir(exist_ok=True)
 
+    def _npm_api_base(self):
+        return 'http://127.0.0.1:%s/api/' % int(self.proxy_settings()['admin_port'])
+
     def _npm_request(self, path, data=None, token=None, method=None, timeout=15):
-        settings = self.proxy_settings()
         headers = {'Content-Type': 'application/json'}
         if token:headers['Authorization'] = 'Bearer ' + token
-        request = urllib.request.Request('http://127.0.0.1:%s/api/%s' % (int(settings['admin_port']), path),
+        request = urllib.request.Request(self._npm_api_base() + path,
             data=json.dumps(data).encode() if data is not None else None, headers=headers,
             method=method or ('POST' if data is not None else 'GET'))
         # Management credentials must never follow redirects or system HTTP proxies.

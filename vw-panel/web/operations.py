@@ -19,7 +19,7 @@ EXTRA_TASKS = {'info': '访问信息与系统状态', 'doctor': '环境体检', 
     'remove-services': '卸载服务', 'remote-providers': '读取云盘类型', 'remote-wizard': '配置远程存储',
     'remote-continue': '继续远程存储配置', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
     'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份',
-    'upgrade-backup': '升级备份服务'}
+    'upgrade-backup': '升级备份服务', 'existing-npm': '配置现有 NPM 站点'}
 BOOL_KEYS = ('WEBSOCKET_ENABLED', 'WEB_VAULT_ENABLED', 'EMERGENCY_ACCESS_ALLOWED', 'ENABLE_DB_WAL')
 NUM_KEYS = ('ADMIN_RATELIMIT_MAX_BURST', 'ADMIN_RATELIMIT_SECONDS', 'ADMIN_SESSION_LIFETIME')
 
@@ -184,6 +184,13 @@ class OperationsMixin:
     def prepare_extended(self, action, data):
         from manager import text, secret_text
         payload = dict(data)
+        if action=='existing-npm':
+            target=data.get('target','')
+            if not isinstance(target,str) or not re.fullmatch(r'[a-f0-9]{12,64}',target):raise ValueError('请选择检测到的 NPM。')
+            email=text(data.get('email',''),'NPM 管理邮箱')
+            if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):raise ValueError('请输入有效的 NPM 管理邮箱。')
+            return {'target':target,'email':email,'password':secret_text(data.get('password',''),'NPM 管理密码')}
+
         if action in ('restore','remove-services','remote-delete'):
             expected = {'restore':'RESTORE','remove-services':'DELETE','remote-delete':'DELETE'}[action]
             if data.get('confirmation') != expected:
@@ -246,6 +253,9 @@ class OperationsMixin:
     def run_extended(self,action,data):
         from manager import read_vars,write_private,update_vars
         app,backup=self.paths()
+        if action=='existing-npm':
+            from existing_npm import ExistingNPM
+            ExistingNPM(self,data).configure();return
         if action in ('info','doctor','backup-diagnose'):
             self.emit('密码库目录：'+str(app))
             self.emit('密码库地址：'+read_vars(app/'vaultwarden.env').get('DOMAIN','未配置'))

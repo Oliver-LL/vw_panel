@@ -9,7 +9,7 @@ import time
 
 NETWORK_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}')
 CONTAINER_FORMAT = ('{"name":{{json .Name}},"running":{{json .State.Running}},'
-                    '"networks":{{json .NetworkSettings.Networks}},"mounts":{{json .Mounts}}}')
+                    '"networks":{{json .NetworkSettings.Networks}},"mounts":{{json .Mounts}},"ports":{{json .NetworkSettings.Ports}}}')
 
 
 def docker(args):
@@ -116,9 +116,10 @@ def detect_environment():
                         result['complete'] = False
                 if networks[name]:
                     usable.append(name)
+            admin=next((p for p in (info.get('ports') or {}).get('81/tcp',[]) or [] if str(p.get('HostPort','')).isdigit()),{})
             result['proxies'].append({'id': container, 'name': str(info.get('name', '')).lstrip('/'),
                                       'kind': proxy_kind(row), 'source':'docker', 'running': info.get('running') is True,
-                                      'networks': usable})
+                                      'networks': usable,'admin_port':int(admin['HostPort']) if admin else None,'admin_local':admin.get('HostIp') in ('127.0.0.1','::1')})
         if not result['complete']:
             result['message'] = '部分容器信息未能读取，请重新检测；本次不会自动选择网络。'
     except FileNotFoundError:

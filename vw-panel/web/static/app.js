@@ -9,12 +9,13 @@ let csrf='', timer=null, refreshing=false, taskRunning=false, currentTask='', fi
 let cursor=0,generation='',raw='',consoleRunning=false,hiddenInput=false;
 const dirty=new Set();
 let tokenState={id:'',phase:'',message:''},tokenStarting=false;
+let externalProxyMethod='auto';
 let authEpoch=0,authPhase='checking',authController=new AbortController();
 const activeUploads=new Set();
 function sessionChanged(){const error=new Error('');error.name='SessionChanged';return error}
 function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
-    tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
+    externalProxyMethod='auto';$('external-npm-form').reset();delete $('external-npm-form').dataset.filled;$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
@@ -231,6 +232,36 @@ function renderManagedProxy(){
         $('managed-proxy-description').textContent='NPM 由面板安装，管理邮箱为 '+proxy.email+'，管理端口为 '+proxy.admin_port+'。部署完成后可打开管理界面；若无法访问，请检查该端口是否放行。';
     }else if(managed)$('managed-proxy-description').textContent='Nginx 与证书续期服务由面板管理；修改域名后保存并应用配置，证书申请失败会恢复之前的 Nginx 配置。';
 }
+function renderExternalProxyGuide(){
+    const core=$('core-form'),mode=core.elements.mode.value,card=$('external-proxy-card');
+    card.hidden=mode!=='docker_ext'||!!cfg?.proxy?.managed;
+    if(card.hidden){$('external-npm-form').elements.password.value='';return}
+    const target=cfg?.proxy_target||core.elements.PROXY_TARGET.value,network=core.elements.network.value;
+    const choices=(proxyEnvironment?.proxies||[]).filter(p=>p.kind==='Nginx Proxy Manager'&&p.running&&p.networks?.includes(network)&&(!target||p.id===target));
+    const form=$('external-npm-form'),select=form.elements.target,previous=select.value;
+    select.replaceChildren();if(choices.length>1)select.add(new Option('请选择 NPM 实例',''));for(const proxy of choices)select.add(new Option(proxy.name,proxy.id));
+    if(choices.some(p=>p.id===previous))select.value=previous;
+    const automatic=choices.length&&externalProxyMethod==='auto';
+    $('external-npm-auto').hidden=!automatic;$('external-manual-body').hidden=!!automatic;
+    $('external-method-auto').disabled=!choices.length;
+    for(const [id,selected] of [['external-method-auto',!!automatic],['external-method-manual',!automatic]]){$(id).className=selected?'primary':'secondary';$(id).setAttribute('aria-pressed',String(selected))}
+    $('external-manual-description').textContent=choices.length?'在 NPM 的 Hosts → Proxy Hosts 中点击 Add Proxy Host，按下列参数填写。已有同域名站点时请检查原规则。':'在现有反代中添加下列域名与转发目标；已有同域名规则时，请先检查原配置。';
+    $('external-manual-ssl').textContent=choices.length?'开启 Websockets Support。SSL 中选择已有证书或 Request a new SSL Certificate，再开启 Force SSL 和 HTTP/2。申请证书前，将域名解析到本服务器并放行 80 / 443。':'为站点启用 WebSocket 支持和 HTTPS 证书，将域名解析到本服务器；证书申请方式由现有反代管理。';
+    if(!form.dataset.filled&&cfg?.configured){if(!form.elements.email.value)form.elements.email.value=cfg.core.SERVER_ADMIN_EMAIL||'';form.dataset.filled='true'}
+    let domain=core.elements.DOMAIN.value.trim();try{domain=new URL(domain.includes('://')?domain:'https://'+domain).hostname}catch{domain=''}
+    $('external-route-domain').value=domain;
+    $('external-route-network').textContent='Scheme 填 http，Forward Hostname / IP 填 vaultwarden，Forward Port 填 80。NPM 与密码库需处于同一 Docker 网络：'+network+'。';
+    const running=environment?.containers?.some(row=>row.Names==='vaultwarden'&&row.State==='running');
+    form.querySelector('button[type=submit]').disabled=taskRunning||panelUpdating||!cfg?.configured||!running||hasUnsaved('core')||cfg?.application?.core==='pending';
+    $('external-npm-ready').textContent=!cfg?.configured?'请先保存主服务配置。':!running?'请先启用主服务，再创建反代站点。':(hasUnsaved('core')||cfg?.application?.core==='pending')?'请先保存并应用主服务修改。':'需要域名解析正确，80 / 443 可用；现有同域名规则不会被覆盖。';
+    const selected=choices.find(p=>p.id===select.value),link=$('external-open-npm');link.hidden=!selected?.admin_port||selected.admin_local;
+    if(!link.hidden){const url=new URL(location.href);url.protocol='http:';url.port=String(selected.admin_port);url.pathname='/';url.search='';url.hash='';link.href=url.href}
+}
+$('external-npm-form').onsubmit=async event=>{event.preventDefault();if(!confirm('将在所选 NPM 创建密码库站点并申请 HTTPS 证书。已有同域名规则会保留并提示。确认继续？'))return;if(await startTask('existing-npm',formValues('external-npm-form')))$('external-npm-form').elements.password.value=''};
+$('external-npm-form').elements.target.onchange=renderExternalProxyGuide;
+$('external-method-auto').onclick=()=>{externalProxyMethod='auto';renderExternalProxyGuide()};
+$('external-method-manual').onclick=()=>{externalProxyMethod='manual';renderExternalProxyGuide()};
+document.querySelectorAll('[data-copy-route]').forEach(button=>button.onclick=async()=>{const field=$(button.dataset.copyRoute);try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(field.value);else{field.focus();field.select();if(!document.execCommand('copy'))throw Error()}$('external-copy-result').textContent='已复制。'}catch{$('external-copy-result').textContent='请选中上方内容手动复制。';field.focus();field.select()}});
 function routeHelp(){
     const form=$('core-form');let mode=form.elements.mode.value;
     const choice=resolveSetupChoice();
@@ -253,6 +284,7 @@ function routeHelp(){
     form.elements.network.required=mode==='docker_ext'&&!cfg?.configured;
     if(!cfg?.configured){if(mode!=='docker_ext')form.elements.network.value=cfg?.network||'vaultwarden_net';else if(proxyNetworkEdited)form.elements.network.value=proxyManualNetwork}
     paintProxyEnvironment();
+    renderExternalProxyGuide();
     if(!cfg?.configured&&mode==='npm'){$('route-help').textContent='新装 NPM：自动启动代理、创建管理账号、配置密码库站点并申请 HTTPS；无需再手动新增转发规则。需要域名已解析到本机，80 / 443 和管理端口可用。';return}
     if(!cfg?.configured&&mode==='nginx'){$('route-help').textContent='新装 Nginx：自动生成反代配置、申请 HTTPS 并启用证书续期；无需手写 Nginx 配置。需要域名已解析到本机，80 / 443 端口可用。';return}
     if(cfg?.configured&&['npm','nginx'].includes(mode)){$('route-help').textContent=mode==='npm'?'当前由面板安装的 NPM 提供 HTTPS；保存并应用配置会自动更新密码库站点。':'当前由面板安装的 Nginx 提供 HTTPS，证书定时续期。保存后应用配置以生效。';return}
@@ -476,6 +508,7 @@ function renderPresentation(){
     $('push-form').elements.enabled.setAttribute('aria-expanded',String(pushEnabled));
     if(!cfg||!environment)return;
     renderTokenForm();
+    renderExternalProxyGuide();
     const core=environment.containers.find(row=>row.Names==='vaultwarden');const backup=environment.containers.find(row=>row.Names==='vaultwarden-backup');
     const active=core?.State==='running',backupActive=backup?.State==='running';
     const ready=cfg.configured&&cfg.admin_set;
