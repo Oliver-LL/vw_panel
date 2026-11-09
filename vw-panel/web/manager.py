@@ -200,8 +200,11 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             parser.read(path)
             name = env.get('RCLONE_REMOTE_NAME', '')
             section = parser[name] if name in parser else {}
+            url = section.get('url', '')
+            from environment import sensitive
+            if sensitive('url', url):url=''
             return {'name': name, 'type': section.get('type', ''),
-                    'url': section.get('url', ''), 'user': section.get('user', ''),
+                    'url': url, 'user': section.get('user', ''),
                     'directory': env.get('RCLONE_REMOTE_DIR', '/VaultBackup'),
                     'password_set': bool(section.get('pass'))}
         except configparser.Error:
@@ -306,11 +309,28 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             elif enabled and not old.get('ZIP_PASSWORD'):
                 raise ValueError('首次配置请设置备份加密密码。')
             if not (backup / 'docker-compose.yml').exists():
-                updates.update(RCLONE_REMOTE_NAME='BitwardenBackup', RCLONE_REMOTE_DIR='/bitwarden/backup/archive')
+                config_file = backup / 'vw-backup-config/rclone/rclone.conf'
+                existing = config_file.read_text() if config_file.exists() else ''
+                names = set(re.findall(r'(?m)^\[([^\]]+)\]\s*$', existing))
+                local_name = 'BitwardenBackup'
+                if local_name in names:
+                    section = re.search(r'(?ms)^\[%s\]\s*\n(.*?)(?=^\[|\Z)' % re.escape(local_name), existing)
+                    if not re.search(r'(?mi)^\s*type\s*=\s*local\s*$', section.group(1) if section else ''):
+                        local_name = 'PanelLocal'
+                        index = 0
+                        while local_name in names:
+                            index += 1
+                            local_name = 'PanelLocal' + str(index)
+                if not read_vars(backup / 'backup.env').get('RCLONE_REMOTE_NAME'):
+                    updates.update(RCLONE_REMOTE_NAME=local_name, RCLONE_REMOTE_DIR='/bitwarden/backup/archive')
                 updates.setdefault('BACKUP_FILE_SUFFIX','%Y%m%d-%H%M%S')
                 for name in ('backups', 'vw-backup-config/rclone'):
                     (backup / name).mkdir(parents=True, exist_ok=True)
-                write_private(backup / 'vw-backup-config/rclone/rclone.conf', '[BitwardenBackup]\ntype = local\n')
+                if not existing.strip():
+                    write_private(config_file, '[%s]\ntype = local\n' % local_name)
+                elif local_name not in names:
+                    write_private(config_file.with_name('rclone.conf.panel-backup'), existing)
+                    write_private(config_file, existing.rstrip() + '\n\n[%s]\ntype = local\n' % local_name)
                 compose = {'services': {'backup': {'image': 'ttionya/vaultwarden-backup:latest',
                     'container_name': 'vaultwarden-backup', 'restart': 'unless-stopped',
                     'env_file': ['./backup.env'], 'volumes': ['../vaultwarden/data:/bitwarden/data:ro',

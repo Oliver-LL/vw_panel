@@ -13,12 +13,14 @@ import tarfile
 import tempfile
 import time
 from urllib.parse import urlsplit
+from storage_presets import PRESETS, config_lines, normalize, public_presets, target_dir, verify_commands, verify_target
 
 EXTRA_TASKS = {'info': '访问信息与系统状态', 'doctor': '环境体检', 'backup-diagnose': '备份诊断',
     'proxy-logs': '查看代理日志', 'mail-test': '发送备份测试邮件', 'restore': '恢复备份',
     'remove-services': '卸载服务', 'remote-providers': '读取云盘类型', 'remote-wizard': '配置远程存储',
     'remote-continue': '继续远程存储配置', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
     'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份',
+    'remote-r2-save': '保存 Cloudflare R2 存储', 'remote-preset-save': '保存远程存储预设',
     'upgrade-backup': '升级备份服务', 'existing-npm': '配置现有 NPM 站点'}
 BOOL_KEYS = ('ENABLE_WEBSOCKET', 'WEB_VAULT_ENABLED', 'EMERGENCY_ACCESS_ALLOWED', 'ENABLE_DB_WAL')
 NUM_KEYS = ('ADMIN_RATELIMIT_MAX_BURST', 'ADMIN_RATELIMIT_SECONDS', 'ADMIN_SESSION_LIFETIME','LOGIN_RATELIMIT_MAX_BURST','LOGIN_RATELIMIT_SECONDS')
@@ -45,6 +47,7 @@ class OperationsMixin:
     def extended_config(self):
         from manager import read_vars
         app, backup = self.paths()
+        preset_targets = self.preset_targets()
         env, bk = read_vars(app / 'vaultwarden.env'), read_vars(backup / 'backup.env')
         remotes = parser_for(backup / 'vw-backup-config/rclone/rclone.conf')
         targets = []
@@ -66,7 +69,7 @@ class OperationsMixin:
         except ValueError:
             pass
         uri = urlsplit(smtp.get('smtp', ''))
-        from environment import public_environment
+        from environment import public_environment, sensitive
         advanced={k:env.get(k,'') for k in BOOL_KEYS+NUM_KEYS+('TZ',)}
         advanced['ENABLE_WEBSOCKET']=env.get('ENABLE_WEBSOCKET',env.get('WEBSOCKET_ENABLED',''))
         return {'environment':public_environment(self,env,bk),'advanced':advanced,
@@ -77,8 +80,10 @@ class OperationsMixin:
                 'security': 'ssl' if uri.scheme == 'smtps' else 'starttls', 'user': smtp.get('smtp-auth-user', ''),
                 'from': smtp.get('from', ''), 'password_set': bool(smtp.get('smtp-auth-password'))},
             'remotes': [{'name': name, 'type': remotes[name].get('type', ''),
-                'fields': {k: ('[已隐藏]' if any(word in k.lower() for word in ('pass','token','secret','key','cookie')) else v)
-                           for k,v in remotes[name].items()}} for name in remotes.sections()], 'targets': targets}
+                'target': preset_targets.get(name, ''),
+                'fields': {k: ('[已隐藏]' if any(word in k.lower() for word in ('pass','token','secret','key','cookie')) or sensitive(k, v) else v)
+                           for k,v in remotes[name].items()}} for name in remotes.sections()], 'targets': targets,
+            'storage_presets': public_presets()}
 
     def save_extended(self, section, data):
         from manager import read_vars, update_vars, write_private, text, number, secret_text
@@ -213,10 +218,23 @@ class OperationsMixin:
                 raise ValueError('请选择卸载范围与数据处理方式。')
             if not isinstance(data.get('remove_proxy', False), bool) or (data.get('remove_proxy') and data.get('scope')=='backup'):
                 raise ValueError('卸载备份时不能移除反代。')
+        if action in ('remote-preset-save','remote-r2-save'):
+            preset_id='r2' if action=='remote-r2-save' else data.get('preset','')
+            if not isinstance(preset_id,str) or preset_id not in PRESETS:
+                raise ValueError('请选择存储类型。')
+            name=data.get('name','')
+            if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',name):
+                raise ValueError('远程名称仅支持字母、数字、下划线、短横线和点号。')
+            if name.upper()=='DEFAULT':raise ValueError('远程名称不能使用 DEFAULT。')
+            values=normalize(preset_id,data)
+            if not isinstance(data.get('set_target',False),bool):
+                raise ValueError('备份目标选项格式不正确。')
+            return {'preset':preset_id,'name':name,'values':values,'set_target':data.get('set_target',False)}
         if action.startswith('remote-') and action not in ('remote-providers','remote-continue'):
             name=data.get('name','')
-            if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}',name):
-                raise ValueError('远程名称仅支持字母、数字、下划线和短横线。')
+            if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',name):
+                raise ValueError('远程名称仅支持字母、数字、下划线、短横线和点号。')
+            if name.upper()=='DEFAULT':raise ValueError('远程名称不能使用 DEFAULT。')
             payload['name']=name
         if action=='remote-wizard':
             kind=text(data.get('type',''),'云盘类型')
@@ -253,6 +271,49 @@ class OperationsMixin:
             '--entrypoint','sh','ttionya/vaultwarden-backup:latest','-c',script,'rc',path],
             json.dumps(data),secret=True)
         return json.loads(raw)
+
+    def preset_targets(self):
+        try:
+            value=json.loads((self.state/'storage-targets.json').read_text())
+            return value if isinstance(value,dict) else {}
+        except (OSError,ValueError):
+            return {}
+
+    def remember_preset_target(self,name,directory):
+        from manager import write_private
+        data=self.preset_targets();data[name]=directory
+        write_private(self.state/'storage-targets.json',json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+
+    def forget_preset_target(self,name):
+        from manager import write_private
+        data=self.preset_targets()
+        if data.pop(name,None) is not None:
+            write_private(self.state/'storage-targets.json',json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+
+    def rclone_probe(self,args,config_file,secrets=(),label='远程存储',hint=''):
+        # Trial against a candidate config; surface a redacted rclone error instead of a generic failure.
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            try:
+                result=subprocess.run(['docker','run','--rm',
+                    '-v',str(config_file)+':/config/rclone/rclone.conf:ro',
+                    '--entrypoint','rclone','ttionya/vaultwarden-backup:latest',*args],
+                    stdout=output,stderr=errors,timeout=300)
+            except subprocess.TimeoutExpired:
+                raise ValueError(label+' 连接超时，请检查服务器网络后重试。')
+            output.seek(0);errors.seek(0)
+            if result.returncode:
+                message=errors.read(8000).decode('utf-8','replace')
+                for value in secrets:
+                    if value:message=message.replace(value,'[已隐藏]')
+                message=re.sub(r'(?i)\b(pass|password|token|secret(?:_access_key)?|access_key_id|key|cookie)\s*=\s*\S+',r'\1 = [已隐藏]',message)
+                message=re.sub(r'(?i)([?&](?:token|key|secret|password)=)[^&\s]+',r'\1[已隐藏]',message)
+                message=re.sub(r'(://)[^/\s@]+@',r'\1[已隐藏]@',message)
+                message=re.sub(r'(?i)(could not parse line:).*',r'\1 [已隐藏]',message)
+                message=re.sub(r'\x1b\[[0-9;]*m','',message)
+                lines=[line.strip() for line in message.splitlines() if line.strip()]
+                detail=' '.join(lines[-5:])[-700:]
+                raise ValueError(label+' 连接验证失败：'+(detail or 'rclone 未返回错误详情。')+((' '+hint) if hint else ''))
+            return output.read().decode('utf-8','replace')
 
     def run_extended(self,action,data):
         from manager import read_vars,write_private,update_vars
@@ -328,6 +389,8 @@ class OperationsMixin:
             self.remove_services(data);return
         if action=='restore':
             self.restore_archive(data);return
+        if action in ('remote-preset-save','remote-r2-save'):
+            self.save_preset_remote(data);return
         remote_file=backup/'vw-backup-config/rclone/rclone.conf'
         if action=='remote-providers':
             value=self.rc('config/providers',{},backup/'vw-backup-config')
@@ -342,6 +405,7 @@ class OperationsMixin:
                 raise ValueError('此存储仍是备份目标，请先修改备份目标再删除。')
             write_private(remote_file.with_name('rclone.conf.panel-backup'),remote_file.read_text())
             self.rc('config/delete',{'name':name},backup/'vw-backup-config')
+            self.forget_preset_target(name)
             self.emit('远程配置已移除；远程文件未删除。');return
         if action=='remote-about':
             for command in ('about','config userinfo'):
@@ -367,6 +431,130 @@ class OperationsMixin:
                 target+'/'+data['file'],'/download/'+file.name],secret=True)
             self.emit('已下载到本机：downloaded/'+file.name+'。可在恢复页面选择此文件。');return
         raise ValueError('未知操作。')
+
+    def save_preset_remote(self,data):
+        from manager import write_private
+        preset_id=data['preset'];preset=PRESETS[preset_id];label=preset['label']
+        name=data['name'];values=dict(data['values'])
+        _,backup=self.paths()
+        config=backup/'vw-backup-config/rclone/rclone.conf'
+        original=config.read_text() if config.exists() else ''
+        parser=parser_for(config)
+        existing=dict(parser[name]) if name in parser else {}
+        if existing and existing.get('type','').lower()!=preset['type'].lower():
+            raise ValueError('同名存储已存在且类型不同，请更换存储名称。')
+        required_provider=preset.get('requires_provider','')
+        if existing and required_provider and existing.get('provider','').lower() not in ('',required_provider.lower()):
+            raise ValueError('同名存储已存在且不是 '+required_provider+'，请更换存储名称。')
+        if preset_id=='s3' and existing:
+            current=existing.get('provider','').lower();selected=values.get('provider','').lower()
+            if current and selected and current!=selected:
+                raise ValueError('同名存储的服务商不同，请更换存储名称或先删除原配置。')
+        if preset_id=='r2' and not values.get('account_id'):
+            match=re.fullmatch(r'https://([a-fA-F0-9]{32})(\.[a-z0-9-]+)?\.r2\.cloudflarestorage\.com/?',existing.get('endpoint','').strip())
+            if not match:
+                raise ValueError('请填写 Cloudflare Account ID，或使用已配置的 R2 存储名称。')
+            values['account_id']=match.group(1).lower()
+            if not values.get('jurisdiction') and match.group(2):
+                values['jurisdiction']=match.group(2).lstrip('.')
+        obscured={};secrets=[]
+        for field in preset['fields']:
+            if not field.get('secret'):continue
+            key=field['key'];option=field.get('option',key);value=values.get(key,'')
+            if value:
+                try:
+                    secret=self._command(['docker','run','--rm','-i','ttionya/vaultwarden-backup:latest',
+                        'rclone','obscure','-'],value+'\n',secret=True).strip()
+                except ValueError:
+                    raise ValueError(label+' Secret 处理失败，请确认备份镜像可正常运行。原配置未修改。')
+                if not re.fullmatch(r'[A-Za-z0-9_+/=-]+',secret):
+                    raise ValueError(label+' Secret 处理失败，原配置未修改。')
+                obscured[key]=secret;secrets += [value,secret]
+            else:
+                secret=existing.get(option,'')
+                if not secret:
+                    raise ValueError('首次配置请填写'+field['label']+'。')
+                obscured[key]=secret;secrets.append(secret)
+        for field in preset['fields']:
+            if field.get('secret') or not field.get('reuse_blank'):continue
+            key=field['key'];option=field.get('option',key)
+            if not values.get(key):
+                current=existing.get(option,'')
+                if current:
+                    if field.get('pattern') and not re.fullmatch(field['pattern'],current):
+                        raise ValueError(field['label']+'格式不正确。')
+                    values[key]=current
+                elif field.get('required'):
+                    raise ValueError('首次配置请填写'+field['label']+'。')
+        if preset_id in ('r2','s3') and not values.get('access_key_id'):
+            raise ValueError('首次配置请填写 Access Key ID。')
+        if preset_id=='r2' and not values.get('account_id'):
+            raise ValueError('请填写 Cloudflare Account ID。')
+        lines,managed=config_lines(preset_id,values,obscured)
+        for key,value in existing.items():
+            if key in managed or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',key):continue
+            if any(ord(c)<32 for c in value):continue
+            lines.append('%s = %s'%(key,value))
+        block='[%s]\n%s\n'%(name,'\n'.join(lines))
+        candidate=re.sub(r'(?ms)^\[%s\]\s*\n.*?(?=^\[|\Z)'%re.escape(name),'',original).strip('\n')
+        if candidate:candidate+='\n\n'
+        candidate+=block
+        directory=target_dir(preset_id,values)
+        if data.get('set_target') and (backup/'backup.env').exists():
+            targets=self.extended_config()['targets']
+            if not any(item['name']==name for item in targets) and len(targets)>=20:
+                raise ValueError('备份目标最多 20 个，请先在备份设置中移除一个。')
+        with tempfile.TemporaryDirectory(dir=self.state) as folder:
+            trial=Path(folder)/'rclone.conf'
+            write_private(trial,candidate)
+            commands=verify_commands(preset_id,verify_target(preset_id,name,values))
+            for command in commands:
+                self.rclone_probe(command,trial,secrets=tuple(secrets),label=label,hint=preset.get('verify_hint',''))
+            parsed=parser_for(trial)
+            if name not in parsed.sections():
+                raise ValueError('远程名称无法写入 Rclone 配置，请更换名称。')
+            if data.get('set_target') and (backup/'backup.env').exists():
+                names=set(parsed.sections())
+                for item in self.extended_config()['targets']:
+                    if item['name'] not in names:
+                        raise ValueError('备份目标 %s 在 Rclone 配置中不存在，请先在备份设置中修复该目标。'%item['name'])
+        latest=config.read_text() if config.exists() else ''
+        if latest!=original:
+            raise ValueError('远程配置在验证期间发生变化，请重新提交，避免覆盖其他修改。')
+        env_file=backup/'backup.env'
+        env_original=env_file.read_text() if env_file.exists() else None
+        if config.exists():write_private(config.with_name('rclone.conf.panel-backup'),original)
+        updated=False
+        try:
+            write_private(config,candidate)
+            if data.get('set_target') and env_original is not None:
+                targets=[dict(item) for item in self.extended_config()['targets']]
+                entry={'name':name,'directory':directory}
+                index=next((i for i,item in enumerate(targets) if item['name']==name),None)
+                if index is None:targets.append(entry)
+                else:targets[index]=entry
+                self.save_extended('targets',{'targets':targets});updated=True
+        except Exception:
+            try:
+                if original:write_private(config,original)
+                else:config.unlink(missing_ok=True)
+                if env_original is not None:write_private(env_file,env_original)
+            except OSError:
+                pass
+            raise
+        try:
+            self.remember_preset_target(name,directory)
+        except OSError:
+            self.emit('存储已保存，但未能记录目录信息；下次重新配置时需要重新填写 Bucket/目录。')
+        verification=('，并已通过 rclone 读取验证。' if preset_id in ('r2','s3') else '，并已通过 rclone 目录验证。') if commands else '。'
+        self.emit(label+' 存储已保存'+verification)
+        if preset_id=='local':self.emit('本机目录由备份容器挂载，保存时未做远程验证。')
+        if updated:
+            self.emit('已更新备份目标 %s:%s；请应用备份配置使目标生效。'%(name,directory))
+        elif data.get('set_target'):
+            self.emit('备份计划尚未保存，未写入备份目标；可稍后在备份设置中启用。')
+        else:
+            self.emit('可到“备份设置”将 %s 选为备份目标。'%name)
 
     def remote_question(self,action,data):
         from manager import write_private
