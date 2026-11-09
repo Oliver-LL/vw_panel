@@ -19,7 +19,7 @@ function invalidateAuth(phase){
 }
 async function sessionRequest(url,options={}){
     const epoch=authEpoch;
-    try{const response=await fetch(url,{...options,signal:authController.signal});if(epoch!==authEpoch)throw sessionChanged();return response}
+    try{const response=await fetch(url,{...options,signal:options.signal||authController.signal});if(epoch!==authEpoch)throw sessionChanged();return response}
     catch(error){if(epoch!==authEpoch)throw sessionChanged();if(error.name==='AbortError')throw Error('连接超时，请重试。');throw error}
 }
 function expireSession(){
@@ -323,7 +323,7 @@ document.addEventListener('change',()=>renderPresentation());
 
 
 let panelUpdating=false,checkingUpdates=false,panelUpdateInfo=null,updateWatch=null;
-let versionPopoverOpen=false;
+let versionPopoverOpen=false,updateCheckError='';
 function paintPanelUpdate(info){
     clearTimeout(updateWatch);panelUpdateInfo=info;const installed=info.installed||{};const latest=info.latest;
     $('panel-version').textContent=installed.version||'未知版本';
@@ -343,14 +343,18 @@ function paintPanelUpdate(info){
     syncVersionPopover();renderPresentation();
 }
 async function checkPanelUpdates(force=false){
-    if(!csrf||checkingUpdates)return;const epoch=authEpoch;checkingUpdates=true;syncVersionPopover();
+    if(!csrf||checkingUpdates)return;
+    const epoch=authEpoch,parentSignal=authController.signal,controller=new AbortController();
+    const cancel=()=>controller.abort();parentSignal.addEventListener('abort',cancel,{once:true});
+    let timedOut=false;const timeout=setTimeout(()=>{timedOut=true;controller.abort()},20000);
+    checkingUpdates=true;updateCheckError='';syncVersionPopover();
     try{
-        let response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});
+        let response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin',signal:controller.signal});
         if(epoch!==authEpoch)throw sessionChanged();
-        if(response.status===401){if(panelUpdating){location.reload();return}const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();if(!valid){expireSession();return}response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin'});if(epoch!==authEpoch)throw sessionChanged();if(response.status===401)throw Error('更新检查暂不可用，请稍后重试。')}
+        if(response.status===401){if(panelUpdating){location.reload();return}const valid=await verifyCurrentSession(epoch);if(epoch!==authEpoch)throw sessionChanged();if(!valid){expireSession();return}response=await sessionRequest('/api/updates'+(force?'?force=1':''),{credentials:'same-origin',signal:controller.signal});if(epoch!==authEpoch)throw sessionChanged();if(response.status===401)throw Error('更新检查暂不可用，请稍后重试。')}
         const info=await response.json();if(epoch!==authEpoch)throw sessionChanged();if(!response.ok||!info.installed||typeof info.available!=='boolean')throw Error(info.error||'暂时无法检查更新');paintPanelUpdate(info);
-    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;$('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
-    finally{if(epoch===authEpoch){checkingUpdates=false;$('check-updates').disabled=false;syncVersionPopover()}}
+    }catch(error){if(isSessionTransition(error)||epoch!==authEpoch)return;updateCheckError=timedOut?'检查超时，请点击右上角刷新重试。':'连接失败，请点击右上角刷新重试。';$('panel-update').hidden=!versionPopoverOpen;$('panel-update').className='panel-update error';$('update-message').textContent=panelUpdating?'面板暂时离线，正在等待重新连接…':'检查失败，点击版本号重试';$('upgrade-panel').hidden=true;if(panelUpdating){clearTimeout(updateWatch);updateWatch=setTimeout(()=>checkPanelUpdates(false),3000)}}
+    finally{clearTimeout(timeout);parentSignal.removeEventListener('abort',cancel);if(epoch===authEpoch){checkingUpdates=false;$('check-updates').disabled=false;syncVersionPopover()}}
 }
 function positionVersionPopover(){
     if(!versionPopoverOpen)return;
@@ -367,8 +371,8 @@ function setVersionPopover(open,focusBack=false){
     else if(focusBack)$('check-updates').focus({preventScroll:true});
 }
 function syncVersionPopover(){
-    const info=panelUpdateInfo,latest=info?.latest,failed=info?.progress?.state==='failed'&&info?.available,error=info?.error||(!failed&&$('panel-update').classList.contains('error'));
-    $('popover-current').textContent='v'+(info?.installed?.version||'0.5.2');
+    const info=panelUpdateInfo,latest=info?.latest,failed=info?.progress?.state==='failed'&&info?.available,error=updateCheckError||info?.error;
+    $('popover-current').textContent='v'+(info?.installed?.version||$('panel-version').textContent);
     $('popover-latest').textContent=checkingUpdates?'检查中…':latest&&!error?'v'+latest.version:error?'暂不可用':'等待检查';
     $('refresh-updates').disabled=checkingUpdates||panelUpdating;$('refresh-updates').classList.toggle('is-checking',checkingUpdates);
     $('refresh-updates').setAttribute('aria-busy',String(checkingUpdates));
@@ -377,9 +381,10 @@ function syncVersionPopover(){
     title.textContent=panelUpdating?'正在更新面板':checkingUpdates?'正在检查更新':failed?'上次更新未完成':error?'暂时无法检查更新':available?'有新版本可用！':info?'已是最新版本':'检查面板更新';
     if(panelUpdating)$('update-message').textContent='更新完成后需要重新登录，密码库服务保持运行。';
     else if(failed)$('update-message').textContent=info.progress.error||'可重新检查后重试。';
-    else if(error)$('update-message').textContent=info?.error||'连接失败，请点击右上角刷新重试。';
     else if(checkingUpdates)$('update-message').textContent='正在获取最新版本信息，请稍候。';
+    else if(error)$('update-message').textContent=error;
     else if(!panelUpdating&&!error&&latest)$('update-message').textContent=available?(latest.version===info.installed.version?'包含新的修复，可立即更新。':'v'+latest.version):'当前面板无需更新。';
+    $('upgrade-panel').hidden=!available||panelUpdating;
     $('upgrade-panel').textContent=panelUpdating?'正在更新…':'↓ 立即更新';
     $('upgrade-panel').disabled=checkingUpdates||panelUpdating||taskRunning||consoleRunning;
     if(versionPopoverOpen)requestAnimationFrame(positionVersionPopover);
