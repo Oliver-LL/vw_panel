@@ -1168,6 +1168,8 @@ function syncVersionPopover(){
     $('refresh-updates').setAttribute('aria-busy',String(checkingUpdates));
     const available=!!(info?.available&&!error),title=$('popover-status-title');
     $('check-updates').classList.toggle('has-update',available);
+    $('panel-update').classList.toggle('error',!panelUpdating&&!checkingUpdates&&!!(error||failed));
+    $('panel-update').classList.toggle('available',!panelUpdating&&!checkingUpdates&&available&&!failed);
     title.textContent=panelUpdating?'正在更新面板':checkingUpdates?'正在检查更新':failed?'上次更新未完成':error?'暂时无法检查更新':available?'有新版本可用！':info?'已是最新版本':'检查面板更新';
     if(panelUpdating)$('update-message').textContent='更新完成后自动刷新并回到面板，密码库服务保持运行。';
     else if(failed)$('update-message').textContent=info.progress.error||'可重新检查后重试。';
