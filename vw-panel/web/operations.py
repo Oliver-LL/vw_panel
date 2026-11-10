@@ -227,10 +227,13 @@ class OperationsMixin:
             if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',name):
                 raise ValueError('远程名称仅支持字母、数字、下划线、短横线和点号。')
             if name.upper()=='DEFAULT':raise ValueError('远程名称不能使用 DEFAULT。')
+            source=data.get('original_name','')
+            if not isinstance(source,str) or source and (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',source) or source.upper()=='DEFAULT'):
+                raise ValueError('原存储名称不正确，请重新打开编辑。')
             values=normalize(preset_id,data)
             if not isinstance(data.get('set_target',False),bool):
                 raise ValueError('备份目标选项格式不正确。')
-            return {'preset':preset_id,'name':name,'values':values,'set_target':data.get('set_target',False)}
+            return {'preset':preset_id,'name':name,'original_name':source,'values':values,'set_target':data.get('set_target',False)}
         if action.startswith('remote-') and action not in ('remote-providers','remote-continue'):
             name=data.get('name','')
             if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',name):
@@ -543,7 +546,18 @@ class OperationsMixin:
         config=backup/'vw-backup-config/rclone/rclone.conf'
         original=config.read_text() if config.exists() else ''
         parser=parser_for(config)
-        existing=dict(parser[name]) if name in parser else {}
+        source=data.get('original_name') or name
+        renamed=source!=name
+        if data.get('original_name') and source not in parser:raise ValueError('原存储已不存在，请刷新列表后重新编辑。')
+        if renamed and name in parser:raise ValueError('这个存储名称已被使用，请换一个名称。')
+        if renamed:
+            reference=re.compile(r'(?<![A-Za-z0-9_.-])'+re.escape(source)+r':')
+            for section in parser.sections():
+                if section!=source and any(reference.search(parser[section].get(key,'')) for key in ('remote','upstreams','remotes')):
+                    raise ValueError('存储 '+section+' 引用了原连接，请先调整依赖后再改名。')
+        existing=dict(parser[source]) if source in parser else {}
+        prior_targets=[dict(item) for item in self.extended_config()['targets']]
+        desired_targets=[dict(item,name=name) if renamed and item['name']==source else dict(item) for item in prior_targets]
         if existing and existing.get('type','').lower()!=preset['type'].lower():
             raise ValueError('同名存储已存在且类型不同，请更换存储名称。')
         required_provider=preset.get('requires_provider','')
@@ -602,12 +616,12 @@ class OperationsMixin:
             if any(ord(c)<32 for c in value):continue
             lines.append('%s = %s'%(key,value))
         block='[%s]\n%s\n'%(name,'\n'.join(lines))
-        candidate=re.sub(r'(?ms)^\[%s\]\s*\n.*?(?=^\[|\Z)'%re.escape(name),'',original).strip('\n')
+        candidate=re.sub(r'(?ms)^\[%s\]\s*\n.*?(?=^\[|\Z)'%re.escape(source),'',original).strip('\n')
         if candidate:candidate+='\n\n'
         candidate+=block
         directory=target_dir(preset_id,values)
         if data.get('set_target') and (backup/'backup.env').exists():
-            targets=self.extended_config()['targets']
+            targets=desired_targets
             if not any(item['name']==name for item in targets) and len(targets)>=20:
                 raise ValueError('备份目标最多 20 个，请先在备份设置中移除一个。')
         with tempfile.TemporaryDirectory(dir=self.state) as folder:
@@ -621,7 +635,7 @@ class OperationsMixin:
                 raise ValueError('远程名称无法写入 Rclone 配置，请更换名称。')
             if data.get('set_target') and (backup/'backup.env').exists():
                 names=set(parsed.sections())
-                for item in self.extended_config()['targets']:
+                for item in desired_targets:
                     if item['name'] not in names:
                         raise ValueError('备份目标 %s 在 Rclone 配置中不存在，请先在备份设置中修复该目标。'%item['name'])
         latest=config.read_text() if config.exists() else ''
@@ -633,12 +647,14 @@ class OperationsMixin:
         updated=False
         try:
             write_private(config,candidate)
-            if data.get('set_target') and env_original is not None:
-                targets=[dict(item) for item in self.extended_config()['targets']]
-                entry={'name':name,'directory':directory}
-                index=next((i for i,item in enumerate(targets) if item['name']==name),None)
-                if index is None:targets.append(entry)
-                else:targets[index]=entry
+            if env_original is not None and (data.get('set_target') or renamed and any(item['name']==source for item in prior_targets)):
+                targets=desired_targets
+                if data.get('set_target'):
+                    index=next((i for i,item in enumerate(targets) if item['name']==name and item['directory']==directory),None)
+                    if index is None:index=next((i for i,item in enumerate(targets) if item['name']==name and item['enabled']),None)
+                    entry={'name':name,'directory':directory,'enabled':True}
+                    if index is None:targets.append(entry)
+                    else:targets[index]={**targets[index],**entry}
                 from backup_targets import apply
                 def restore_remote():
                     if original:write_private(config,original)
@@ -654,12 +670,13 @@ class OperationsMixin:
             raise
         try:
             self.remember_preset_target(name,directory)
+            if renamed:self.forget_preset_target(source)
         except OSError:
             self.emit('存储已保存，但未能记录目录信息；下次重新配置时需要重新填写 Bucket/目录。')
         verification=('，并已通过 rclone 读取验证。' if preset_id in ('r2','s3') else '，并已通过 rclone 目录验证。') if commands else '。'
         self.emit(label+' 存储已保存'+verification)
         if preset_id=='local':self.emit('本机目录由备份容器挂载，保存时未做远程验证。')
-        self.job['result']={'storage_saved':{'name':name,'label':label,'verified':bool(commands),'target_updated':updated,'target_applied':updated and self.application_state()['backup']=='applied'}}
+        self.job['result']={'storage_saved':{'name':name,'renamed_from':source if renamed else '', 'references_only':renamed and not data.get('set_target'), 'label':label,'verified':bool(commands),'target_updated':updated,'target_applied':updated and self.application_state()['backup']=='applied'}}
         if updated:
             if self.application_state()['backup']=='applied':self.emit('备份目标已更新并应用：%s:%s。'%(name,directory))
             else:self.emit('备份目标已保存：%s:%s；启动备份服务后按计划投递。'%(name,directory))
