@@ -50,6 +50,7 @@ function sessionChanged(){const error=new Error('');error.name='SessionChanged';
 function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
     dismissActionDialog();
+    clearStorageDraft();presetSubmitted=null;
     trackedTask=null;externalProxyMethod='auto';externalProxyEditing=false;$('external-npm-form').reset();delete $('external-npm-form').dataset.filled;$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
@@ -85,12 +86,13 @@ function taskOutcome(job){
     if(!trackedTask||trackedTask.id!==job.id||job.state==='running')return;
     const action=trackedTask.action||job.action,context=trackedTask.context||{};trackedTask=null;
     if(job.cancelled){notice('存储配置已结束，可更新面板或重新开始配置。',false,{kind:'info'});return}
-    if(job.state==='failed'){if(action==='remote-list'&&context.name===$('remote-browse-form').elements.name.value)remoteBrowserState('文件读取失败，请检查连接和目录，或点击刷新重试。');if(action==='remote-preset-save')presetSubmitted=null;let message=job.error;const generic=!message||['操作失败，请检查连接与配置。凭据未写入日志。','命令执行失败，请查看任务详情。','操作失败，请查看执行详情。'].includes(message);if(generic)message=({ 'backup-now':'备份未完成，请查看失败详情，确认数据库及目标存储是否可用。','remote-check':'连接验证未完成，请检查存储连接信息和目录权限。','remote-about':'未能读取存储信息，请检查授权状态。','remote-list':'未能读取备份列表，请检查存储、Bucket 和保存目录。','remote-download':'备份下载失败，请检查源文件、服务器网络和可用空间。','remote-file-delete':'远程备份删除失败，请检查文件是否存在，以及存储账号是否有删除权限。','mail-test':'测试邮件发送失败，请检查 SMTP 地址、端口、授权码和收件地址。','remote-wizard':'存储向导未能启动，请检查 Docker 与备份镜像。','remote-continue':'存储配置未完成，请检查本步填写内容，或重新开始授权。','restore':'备份恢复失败，请检查压缩包、加密密码和可用空间。',logs:'密码库日志读取失败，请确认服务已经部署。','backup-logs':'备份日志读取失败，请确认备份服务已经部署。','proxy-logs':'反代日志读取失败，请检查所选反代是否存在。'})[action]||'本次请求未完成，请打开失败详情，按具体原因重试。';notice(message,true,{detail:true});return}
+    if(job.state==='failed'){if(action==='remote-list'&&context.name===$('remote-browse-form').elements.name.value)remoteBrowserState('文件读取失败，请检查连接和目录，或点击刷新重试。');if(action==='remote-preset-save'){presetSubmitted=null;storageSubmittedDraft=null;}let message=job.error;const generic=!message||['操作失败，请检查连接与配置。凭据未写入日志。','命令执行失败，请查看任务详情。','操作失败，请查看执行详情。'].includes(message);if(generic)message=({ 'backup-now':'备份未完成，请查看失败详情，确认数据库及目标存储是否可用。','remote-check':'连接验证未完成，请检查存储连接信息和目录权限。','remote-about':'未能读取存储信息，请检查授权状态。','remote-list':'未能读取备份列表，请检查存储、Bucket 和保存目录。','remote-download':'备份下载失败，请检查源文件、服务器网络和可用空间。','remote-file-delete':'远程备份删除失败，请检查文件是否存在，以及存储账号是否有删除权限。','mail-test':'测试邮件发送失败，请检查 SMTP 地址、端口、授权码和收件地址。','remote-wizard':'存储向导未能启动，请检查 Docker 与备份镜像。','remote-continue':'存储配置未完成，请检查本步填写内容，或重新开始授权。','restore':'备份恢复失败，请检查压缩包、加密密码和可用空间。',logs:'密码库日志读取失败，请确认服务已经部署。','backup-logs':'备份日志读取失败，请确认备份服务已经部署。','proxy-logs':'反代日志读取失败，请检查所选反代是否存在。'})[action]||'本次请求未完成，请打开失败详情，按具体原因重试。';notice(message,true,{detail:true});return}
     if(action==='backup-target-save'){$('target-dialog').close();dirty.delete('target-editor-form')}
     if(action==='backup-target-toggle'||action==='backup-target-save'){const count=(cfg?.extras?.targets||[]).filter(row=>row.enabled!==false).length,running=environment?.containers?.some(row=>row.Names==='vaultwarden-backup'&&row.State==='running');notice(!count?'所有目标已停用，备份投递已暂停。':running?'备份目标已生效，当前启用 '+count+' 个目标。':'备份目标已保存。请在备份设置中启动备份服务。');return}
     if(action==='remote-oauth-start'){notice('授权链接已生成，请打开服务商授权页面继续。',false,{kind:'info'});return}
-    if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form');if(form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');presetTouched=false;$('storage-dialog').close()}presetSubmitted=null}
+    if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form'),sameEditor=storageDraftGeneration===storageSubmittedGeneration;if(sameEditor)storageDraftBaseline=storageSubmittedDraft;if(sameEditor&&form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');clearStorageDraft();$('storage-dialog').close()}presetSubmitted=null;storageSubmittedDraft=null}
     if(job.state!=='success'||job.result?.question)return;
+    if(job.result?.done&&['remote-wizard','remote-continue','remote-oauth-complete'].includes(action))clearStorageDraft();
     if(action==='backup-now'){
         const result=job.result?.backup_result;
         if(!result){notice('备份脚本已执行完成，请查看备份日志确认投递位置。',false,{kind:'info',detail:true,detailLabel:'查看备份详情'});return}
@@ -462,7 +464,7 @@ $('input-form').onsubmit=async event=>{event.preventDefault();const field=$('ter
 
 // Native settings for every original service option.
 const extraDefaults={ENABLE_WEBSOCKET:true,LOGIN_RATELIMIT_MAX_BURST:'10',LOGIN_RATELIMIT_SECONDS:'60',WEB_VAULT_ENABLED:true,EMERGENCY_ACCESS_ALLOWED:true,ENABLE_DB_WAL:true,ADMIN_RATELIMIT_MAX_BURST:'5',ADMIN_RATELIMIT_SECONDS:'60',ADMIN_SESSION_LIFETIME:'20',TZ:'Asia/Shanghai'};
-let wizardId='',resultSeen='',lastLive=0,remoteBrowse={},presetSubmitted=null,presetTouched=false,storageConfigSequence=0;
+let wizardId='',resultSeen='',lastLive=0,remoteBrowse={},presetSubmitted=null,storageDraftBaseline=null,storageSubmittedDraft=null,storageDraftGeneration=0,storageSubmittedGeneration=0,storageConfigSequence=0;
 function presetCatalog(){return cfg?.extras?.storage_presets||[]}
 function presetById(id){return presetCatalog().find(item=>item.id===id)}
 function presetForRemote(remote){
@@ -521,6 +523,14 @@ function renderPresetFields(presetId,values={}){
     if(grid.children.length)box.append(grid);
     if(toggles.children.length)box.append(toggles);
 }
+function storageDraftSnapshot(){
+    const type=$('storage-type').value,name=$('storage-profile-name').value;
+    const form=type.startsWith('p:')?'preset-form':type.startsWith('w:')?'wizard-start-form':null;
+    return JSON.stringify({type,name,values:form?formValues(form):{}});
+}
+function markStorageDraftBaseline(){storageDraftGeneration++;storageDraftBaseline=storageDraftSnapshot()}
+function hasStorageDraftChanges(){return storageDraftBaseline!==null&&storageDraftSnapshot()!==storageDraftBaseline}
+function clearStorageDraft(){storageDraftGeneration++;storageDraftBaseline=null;storageSubmittedDraft=null}
 function initPresetForm(){
     const form=$('preset-form');if(!form)return;
     const select=form.elements.preset;if(!select||select.options.length)return;
@@ -532,7 +542,7 @@ function initPresetForm(){
 async function prefillPresetForm(remote){
     const presetId=presetForRemote(remote);if(!presetId)return false;
     const form=$('preset-form');if(!form)return false;
-    if(presetTouched&&!await confirmDialog('常用存储表单里有未保存的内容，重新配置会覆盖。确认继续？',{title:'覆盖未保存的存储配置',accept:'继续预填'}))return true;
+    if(hasStorageDraftChanges()&&!await confirmDialog('当前存储还有未保存的修改，继续编辑会清空这些输入。',{title:'放弃当前修改？',accept:'放弃并编辑'}))return true;
     initPresetForm();
     const select=form.elements.preset;if(!select||!Array.from(select.options).some(option=>option.value===presetId))return false;
     select.value=presetId;
@@ -554,8 +564,7 @@ async function prefillPresetForm(remote){
     renderPresetFields(presetId,values);
     form.elements.set_target.checked=!!target&&target.enabled!==false;
     dirty.delete('preset-form');
-    presetTouched=false;
-    showStorageMethod('preset');
+    showStorageMethod('preset');markStorageDraftBaseline();
     revealGroup(form);
     $('preset-card')?.scrollIntoView({behavior:'smooth',block:'center'});
     const first=form.querySelector('#preset-fields input:not([type=checkbox]),#preset-fields select');
@@ -593,14 +602,14 @@ $('storage-type').onchange=()=>{
     if(value.startsWith('p:')){const form=$('preset-form');form.elements.name.value=name;form.elements.preset.value=value.slice(2);renderPresetFields(value.slice(2));showStorageMethod('preset')}
     else{const form=$('wizard-start-form'),kind=value.slice(2);form.elements.name.value=name;if(!Array.from(form.elements.type.options).some(option=>option.value===kind))form.elements.type.add(new Option(kind,kind));form.elements.type.value=kind;form.elements.guided.checked=baseCloudTypes.some(item=>item.name===kind);syncWizardDirectory();showStorageMethod('wizard')}
 };
-$('storage-profile-name').oninput=()=>{for(const id of ['preset-form','wizard-start-form'])$(id).elements.name.value=$('storage-profile-name').value;presetTouched=true};
+$('storage-profile-name').oninput=()=>{for(const id of ['preset-form','wizard-start-form'])$(id).elements.name.value=$('storage-profile-name').value;};
 $('storage-type-retry').onclick=()=>loadStorageTypes(true);
 $('new-storage').onclick=async()=>{
     if(wizardId&&!$('wizard-question-form').hidden){openWorkspaceDialog('storage-dialog');return}
+    if(hasStorageDraftChanges()&&!await confirmDialog('当前存储还有未保存的修改，新增会清空这些输入。',{title:'放弃当前修改？',accept:'放弃并新增'}))return;
     $('storage-dialog-title').textContent='新增存储';
-    if(presetTouched&&!await confirmDialog('还有未保存的存储配置，新增会清空这些输入。',{title:'新增存储',accept:'继续新增'}))return;
-    syncWizardDirectory(true);$('wizard-start-form').elements.set_target.checked=true;initPresetForm();const form=$('preset-form');form.elements.original_name.value='';form.elements.name.value='';renderPresetFields(form.elements.preset.value);form.elements.set_target.checked=true;dirty.delete('preset-form');presetTouched=false;
-    showStorageMethod('preset');$('storage-type').value='';$('preset-form').hidden=true;$('storage-wizard').hidden=true;$('storage-type-note').hidden=true;revealGroup(form);requestAnimationFrame(()=>{form.scrollIntoView({behavior:'smooth',block:'center'});$('storage-profile-name').focus()});
+    syncWizardDirectory(true);$('wizard-start-form').elements.set_target.checked=true;initPresetForm();const form=$('preset-form');form.elements.original_name.value='';form.elements.name.value='';renderPresetFields(form.elements.preset.value);form.elements.set_target.checked=true;dirty.delete('preset-form');
+    showStorageMethod('preset');$('storage-type').value='';$('preset-form').hidden=true;$('storage-wizard').hidden=true;$('storage-type-note').hidden=true;markStorageDraftBaseline();revealGroup(form);requestAnimationFrame(()=>{form.scrollIntoView({behavior:'smooth',block:'center'});$('storage-profile-name').focus()});
 };
 function remoteDefaultDirectory(name){
     const extra=cfg?.extras||{},remote=(extra.remotes||[]).find(item=>item.name===name),target=(extra.targets||[]).find(item=>item.name===name&&item.enabled!==false)||(extra.targets||[]).find(item=>item.name===name);
@@ -653,7 +662,7 @@ function renderStorageList(extra){
         const path=document.createElement('p');path.className='muted';const destinations=(extra.targets||[]).filter(item=>item.name===remote.name),enabled=destinations.filter(item=>item.enabled!==false);path.textContent=enabled.length?'备份目标 · '+enabled[0].directory+(enabled.length>1?'（共 '+enabled.length+' 个启用位置）':''):destinations.length?'备份目标已停用 · '+destinations[0].directory:'已连接，尚未设置备份目标';copy.append(head,path);
         const actions=document.createElement('div');actions.className='storage-row-actions';
         const browse=document.createElement('button');browse.type='button';browse.className='secondary';browse.textContent='浏览备份';browse.onclick=()=>openRemoteBrowser(remote.name);
-        const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='重新配置 / 授权';edit.onclick=async()=>{if(await prefillPresetForm(remote))return;$('preset-form').elements.original_name.value='';showStorageMethod('wizard');const form=$('wizard-start-form');form.elements.name.value=remote.name;if(!Array.from(form.elements.type.options).some(option=>option.value===remote.type))form.elements.type.add(new Option(remote.type,remote.type));form.elements.type.value=remote.type;syncWizardDirectory(true,remote);revealGroup(form);requestAnimationFrame(()=>form.scrollIntoView({behavior:'smooth',block:'center'}))};
+        const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='重新配置 / 授权';edit.onclick=async()=>{if(await prefillPresetForm(remote))return;if(hasStorageDraftChanges()&&!await confirmDialog('当前存储还有未保存的修改，继续编辑会清空这些输入。',{title:'放弃当前修改？',accept:'放弃并编辑'}))return;$('preset-form').elements.original_name.value='';showStorageMethod('wizard');const form=$('wizard-start-form');form.elements.name.value=remote.name;if(!Array.from(form.elements.type.options).some(option=>option.value===remote.type))form.elements.type.add(new Option(remote.type,remote.type));form.elements.type.value=remote.type;syncWizardDirectory(true,remote);markStorageDraftBaseline();revealGroup(form);requestAnimationFrame(()=>form.scrollIntoView({behavior:'smooth',block:'center'}))};
         const more=document.createElement('details');more.className='storage-more';const summary=document.createElement('summary');summary.textContent='更多';summary.setAttribute('aria-haspopup','menu');summary.setAttribute('aria-expanded','false');
         const menu=document.createElement('div');menu.className='storage-menu';menu.setAttribute('role','menu');more.append(summary,menu);
         more.addEventListener('toggle',()=>{summary.setAttribute('aria-expanded',String(more.open));if(!more.open)return;for(const other of document.querySelectorAll('.storage-more[open]'))if(other!==more)other.open=false;positionStorageMenu(more)});
@@ -716,14 +725,14 @@ $('wizard-start-form').elements.type.onchange=()=>syncWizardDirectory();
 $('wizard-start-form').onsubmit=async event=>{event.preventDefault();if(!$('storage-profile-name').reportValidity())return;const values=formValues('wizard-start-form');if(cfg?.extras?.remotes.some(r=>r.name===values.name)&&!await confirmDialog('将重新配置 '+values.name+'，向导完成前不会修改原配置。',{title:'重新配置远程存储',accept:'开始配置'}))return;await startTask('remote-wizard',values)};
 function storageWizardRunning(){return taskRunning&&['remote-wizard','remote-continue','remote-oauth-complete'].includes(presentationJob?.action)}
 async function cancelStorageWizard(){
-    try{const result=await api('storage/wizard/cancel',{job_id:currentTask});wizardId='';browserOAuthWizard='';$('wizard-question-form').hidden=true;notice(result.message,false,{kind:'info'});await poll()}
+    try{const result=await api('storage/wizard/cancel',{job_id:currentTask});wizardId='';browserOAuthWizard='';clearStorageDraft();$('wizard-question-form').hidden=true;notice(result.message,false,{kind:'info'});await poll()}
     catch(error){if(!isSessionTransition(error))notice(error.message,true)}
 }
 $('cancel-storage-wizard').onclick=cancelStorageWizard;
 $('cancel-storage-for-update').onclick=cancelStorageWizard;
 $('wizard-question-form').onsubmit=async event=>{event.preventDefault();if(browserOAuthWizard)return submitBrowserOAuth();const input=$('wizard-answer'),value=input.value;if(input.tagName==='SELECT'&&!value)return notice('请先选择一个选项。',true);if(await startTask('remote-continue',{wizard_id:wizardId,answer:value})&&input.type==='password')input.value=''};
-if($('preset-form'))$('preset-form').onsubmit=async event=>{event.preventDefault();if(!$('storage-profile-name').reportValidity())return;const values=formValues('preset-form');presetSubmitted=JSON.stringify(values);if(!await startTask('remote-preset-save',values))presetSubmitted=null};
-if($('preset-form')){const markPresetDraft=event=>{if(event.target.name!=='preset')presetTouched=true};$('preset-form').addEventListener('input',markPresetDraft);$('preset-form').addEventListener('change',markPresetDraft)}
+if($('preset-form'))$('preset-form').onsubmit=async event=>{event.preventDefault();if(!$('storage-profile-name').reportValidity())return;const values=formValues('preset-form');presetSubmitted=JSON.stringify(values);storageSubmittedDraft=storageDraftSnapshot();storageSubmittedGeneration=storageDraftGeneration;if(!await startTask('remote-preset-save',values)){presetSubmitted=null;storageSubmittedDraft=null}};
+
 function renderHelp(box,help){const regex=/https?:\/\/[^\s<>"']+/g;let index=0;for(const match of help.matchAll(regex)){box.append(document.createTextNode(help.slice(index,match.index)));const link=document.createElement('a');link.href=match[0];link.target='_blank';link.rel='noopener noreferrer';link.textContent=match[0];box.append(link);index=match.index+match[0].length}box.append(document.createTextNode(help.slice(index)))}
 let browserOAuthWizard='';
 function renderBrowserOAuth(result){
