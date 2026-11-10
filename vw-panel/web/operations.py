@@ -262,13 +262,13 @@ class OperationsMixin:
         is_s3=parser[name].get('type','').lower()=='s3'
         if not directory:
             if is_s3:raise ValueError('请填写 Bucket/目录，或先在备份设置中保存此存储的目标目录。')
-            directory='/bitwarden/backup/archive' if parser[name].get('type','')=='local' else '/'
+            directory='/vwp/backups/archive' if parser[name].get('type','')=='local' else '/'
         if '..' in Path(directory).parts or any(ord(c)<32 for c in directory):raise ValueError('远程目录不正确。')
         return directory.lstrip('/') if is_s3 else directory
 
     def local_backup_mounts(self):
         app,backup=self.paths();mounts=[]
-        for path,target in ((backup/'backups','/bitwarden/backup'),(app/'data','/bitwarden/data')):
+        for path,target in ((backup/'backups','/bitwarden/backup'),(backup/'backups','/vwp/backups'),(app/'data','/bitwarden/data')):
             if path.is_dir():mounts+=['-v',str(path)+':'+target+':ro']
         return mounts
 

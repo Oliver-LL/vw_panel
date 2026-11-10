@@ -322,7 +322,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                             index += 1
                             local_name = 'PanelLocal' + str(index)
                 if not read_vars(backup / 'backup.env').get('RCLONE_REMOTE_NAME'):
-                    updates.update(RCLONE_REMOTE_NAME=local_name, RCLONE_REMOTE_DIR='/bitwarden/backup/archive')
+                    updates.update(RCLONE_REMOTE_NAME=local_name, RCLONE_REMOTE_DIR='/vwp/backups/archive')
                 updates.setdefault('BACKUP_FILE_SUFFIX','%Y%m%d-%H%M%S')
                 for name in ('backups', 'vw-backup-config/rclone'):
                     (backup / name).mkdir(parents=True, exist_ok=True)
@@ -334,9 +334,11 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                 compose = {'services': {'backup': {'image': 'ttionya/vaultwarden-backup:latest',
                     'container_name': 'vaultwarden-backup', 'restart': 'unless-stopped',
                     'env_file': ['./backup.env'], 'volumes': ['../vaultwarden/data:/bitwarden/data:ro',
-                    './backups:/bitwarden/backup', './vw-backup-config:/config']}}}
+                    './backups:/vwp/backups', './vw-backup-config:/config']}}}
                 write_private(backup / 'docker-compose.yml', compose_yaml(compose))
             update_vars(backup / 'backup.env', updates)
+            from backup_result import prepare_storage
+            prepare_storage(self)
         else:
             raise ValueError('未知配置页面。')
         return {'ok': True, 'message': '已保存。点击“应用配置”后生效。'}
@@ -645,6 +647,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                     from backup_targets import read as read_targets
                     if not any(row['enabled'] for row in read_targets(self)):raise ValueError('没有启用的备份目标，请先在备份目标页面启用一个目标。')
                 if action == 'backup-start':
+                    from backup_result import prepare_storage
+                    prepare_storage(self)
                     try:
                         running = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden']).strip() == 'true'
                     except ValueError:
@@ -654,7 +658,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                         self._deploy_core()
                         self.note_applied('core')
                 if action == 'backup-now':
-                    self._command(['docker', 'exec', 'vaultwarden-backup', '/app/backup.sh'])
+                    from backup_result import run_now
+                    run_now(self)
                 else:
                     self._command(compose(backup, *(['up', '-d', '--force-recreate'] if action == 'backup-start' else ['stop'])))
                     if action == 'backup-start':

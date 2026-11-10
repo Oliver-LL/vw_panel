@@ -84,12 +84,20 @@ function trackTask(job){if(job?.id)trackedTask={id:job.id,action:job.action,cont
 function taskOutcome(job){
     if(!trackedTask||trackedTask.id!==job.id||job.state==='running')return;
     const action=trackedTask.action||job.action,context=trackedTask.context||{};trackedTask=null;
-    if(job.state==='failed'){if(action==='remote-list'&&context.name===$('remote-browse-form').elements.name.value)remoteBrowserState('文件读取失败，请检查连接和目录，或点击刷新重试。');if(action==='remote-preset-save')presetSubmitted=null;let message=job.error;const generic=!message||['操作失败，请检查连接与配置。凭据未写入日志。','命令执行失败，请查看任务详情。','操作失败，请查看执行详情。'].includes(message);if(generic)message=({ 'remote-check':'连接验证未完成，请检查存储连接信息和目录权限。','remote-about':'未能读取存储信息，请检查授权状态。','remote-list':'未能读取备份列表，请检查存储、Bucket 和保存目录。','remote-download':'备份下载失败，请检查源文件、服务器网络和可用空间。','remote-file-delete':'远程备份删除失败，请检查文件是否存在，以及存储账号是否有删除权限。','mail-test':'测试邮件发送失败，请检查 SMTP 地址、端口、授权码和收件地址。','remote-wizard':'存储向导未能启动，请检查 Docker 与备份镜像。','remote-continue':'存储配置未完成，请检查本步填写内容，或重新开始授权。','restore':'备份恢复失败，请检查压缩包、加密密码和可用空间。',logs:'密码库日志读取失败，请确认服务已经部署。','backup-logs':'备份日志读取失败，请确认备份服务已经部署。','proxy-logs':'反代日志读取失败，请检查所选反代是否存在。'})[action]||'本次请求未完成，请打开失败详情，按具体原因重试。';notice(message,true,{detail:true});return}
+    if(job.state==='failed'){if(action==='remote-list'&&context.name===$('remote-browse-form').elements.name.value)remoteBrowserState('文件读取失败，请检查连接和目录，或点击刷新重试。');if(action==='remote-preset-save')presetSubmitted=null;let message=job.error;const generic=!message||['操作失败，请检查连接与配置。凭据未写入日志。','命令执行失败，请查看任务详情。','操作失败，请查看执行详情。'].includes(message);if(generic)message=({ 'backup-now':'备份未完成，请查看失败详情，确认数据库及目标存储是否可用。','remote-check':'连接验证未完成，请检查存储连接信息和目录权限。','remote-about':'未能读取存储信息，请检查授权状态。','remote-list':'未能读取备份列表，请检查存储、Bucket 和保存目录。','remote-download':'备份下载失败，请检查源文件、服务器网络和可用空间。','remote-file-delete':'远程备份删除失败，请检查文件是否存在，以及存储账号是否有删除权限。','mail-test':'测试邮件发送失败，请检查 SMTP 地址、端口、授权码和收件地址。','remote-wizard':'存储向导未能启动，请检查 Docker 与备份镜像。','remote-continue':'存储配置未完成，请检查本步填写内容，或重新开始授权。','restore':'备份恢复失败，请检查压缩包、加密密码和可用空间。',logs:'密码库日志读取失败，请确认服务已经部署。','backup-logs':'备份日志读取失败，请确认备份服务已经部署。','proxy-logs':'反代日志读取失败，请检查所选反代是否存在。'})[action]||'本次请求未完成，请打开失败详情，按具体原因重试。';notice(message,true,{detail:true});return}
     if(action==='backup-target-save'){$('target-dialog').close();dirty.delete('target-editor-form')}
     if(action==='backup-target-toggle'||action==='backup-target-save'){const count=(cfg?.extras?.targets||[]).filter(row=>row.enabled!==false).length,running=environment?.containers?.some(row=>row.Names==='vaultwarden-backup'&&row.State==='running');notice(!count?'所有目标已停用，备份投递已暂停。':running?'备份目标已生效，当前启用 '+count+' 个目标。':'备份目标已保存。请在备份设置中启动备份服务。');return}
     if(action==='remote-oauth-start'){notice('授权链接已生成，请打开服务商授权页面继续。',false,{kind:'info'});return}
     if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form');if(form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');presetTouched=false;$('storage-dialog').close()}presetSubmitted=null}
     if(job.state!=='success'||job.result?.question)return;
+    if(action==='backup-now'){
+        const result=job.result?.backup_result;
+        if(!result){notice('备份脚本已执行完成，请查看备份日志确认投递位置。',false,{kind:'info',detail:true,detailLabel:'查看备份详情'});return}
+        const targets=result.destinations||[],remote=targets.filter(row=>!row.local),local=result.local_files||[];
+        let message=targets.length?'备份已完成，投递目标：'+targets.map(row=>row.name).join('、')+'。':'备份脚本已完成，未能读取实际投递目标，请查看任务日志。';
+        message+=local.length?' 本机列表新增或更新 '+local.length+' 个文件。':remote.length?' 本机未留存新副本，可从远程存储浏览。':' 本机列表未找到新文件，请查看备份详情。';
+        notice(message,false,{kind:local.length||remote.length?'success':'info',detail:true,detailLabel:remote.length===1?'浏览远程备份':remote.length?'查看远程存储':'查看备份详情',onDetail:remote.length?()=>{if(remote.length===1)openRemoteBrowser(remote[0].name,remote[0].directory);else{closeWorkspaceDialogs();location.hash='remote'}}:undefined});return
+    }
     if(action==='remote-check'){notice('「'+(job.result?.remote_validation?.name||context.name||'存储')+'」连接正常，已成功读取存储。');return}
     if(action==='remote-file-delete'){notice('远程备份「'+(job.result?.remote_deleted?.file||'所选文件')+'」已删除，服务器上已下载的副本保留。');return}
     if(action==='remote-list'){notice('备份列表已读取，找到 '+(job.result?.remote_files?.length||0)+' 份 ZIP / 7z 备份。');return}
@@ -566,7 +574,7 @@ $('new-storage').onclick=async()=>{
 };
 function remoteDefaultDirectory(name){
     const extra=cfg?.extras||{},remote=(extra.remotes||[]).find(item=>item.name===name),target=(extra.targets||[]).find(item=>item.name===name);
-    return target?.directory||remote?.target||(remote?.type==='local'?'/bitwarden/backup/archive':remote?.type==='s3'?'':'/');
+    return target?.directory||remote?.target||(remote?.type==='local'?'/vwp/backups/archive':remote?.type==='s3'?'':'/');
 }
 function remoteBrowserState(message){const box=$('remote-files');box.replaceChildren();const state=document.createElement('p');state.className='remote-files-empty';state.textContent=message;box.append(state)}
 function remoteDirectoryLabel(directory){$('remote-files-context').textContent=directory||'尚未设置备份目录';$('remote-files-context').title=directory||''}
@@ -588,8 +596,8 @@ function refreshRemoteBrowser(extra){
 }
 $('remote-browse-form').elements.name.addEventListener('change',()=>{clearRemoteFiles();syncRemoteDirectory(true)});
 $('remote-browse-form').elements.directory.addEventListener('input',clearRemoteFiles);
-function openRemoteBrowser(name){
-    const form=$('remote-browse-form');location.hash='remote';form.elements.name.value=name;clearRemoteFiles();syncRemoteDirectory(true);revealGroup(form);
+function openRemoteBrowser(name,directory=null){
+    const form=$('remote-browse-form');location.hash='remote';form.elements.name.value=name;clearRemoteFiles();syncRemoteDirectory(true);if(directory!==null)form.elements.directory.value=directory;revealGroup(form);
     $('remote-files-dialog-title').textContent=name+' · 备份文件';remoteDirectoryLabel(form.elements.directory.value);toggleRemoteDirectory(!form.elements.directory.value);
     if(form.elements.directory.value)form.requestSubmit();
     else{remoteBrowserState('先设置此存储的备份目录，再读取文件。');form.elements.directory.focus()}
@@ -976,7 +984,7 @@ function renderPresentation(){
     const noFiles=!cfg.files.length;
     if(noFiles){
         $('latest-detail').textContent=backupActive?'备份服务运行中；本机暂无归档，可查看远程目标':cfg.backup_configured?'备份计划已保存；本机暂无归档':'配置备份计划后可创建第一份归档';
-        const empty=$('backup-files').querySelector('.empty');if(empty){const strong=document.createElement('strong');strong.textContent='本机暂无备份归档';const message=backupActive?'备份服务已运行，可手动备份或查看远程目录。':!cfg.backup_configured?'先保存备份计划，再启用备份服务。':backup?'备份服务已暂停，可重新启用或从远程存储下载备份。':'备份计划已保存，启用备份服务后可创建第一份归档。';empty.replaceChildren(strong,document.createTextNode(message))}
+        const empty=$('backup-files').querySelector('.empty');if(empty){const strong=document.createElement('strong');strong.textContent='本机暂无备份归档';const message=backupActive?((cfg.extras?.targets||[]).some(target=>target.enabled!==false&&(cfg.extras.remotes||[]).find(remote=>remote.name===target.name)?.type!=='local')?'本页仅显示本机文件。远程备份请到“远程存储”点击“浏览备份”；需要同时保留本机副本，请启用本地备份目标。':'启用本地备份目标后，备份文件会在这里显示。'):!cfg.backup_configured?'先保存备份计划，再启用备份服务。':backup?'备份服务已暂停，可重新启用或从远程存储下载备份。':'备份计划已保存，启用备份服务后可创建第一份归档。';empty.replaceChildren(strong,document.createTextNode(message))}
     }
     const vaultSubtitle=viewElement('vault','.page-title>.muted');vaultSubtitle.textContent=!cfg.configured?'填写基本信息、设置管理口令后即可部署。':!cfg.admin_set?'基本配置已保存，还需设置管理口令。':corePending?'有已保存的配置等待应用。':core?'管理域名、访问权限和运行参数；修改后保存并应用。':'配置已就绪，可以部署或重新启动密码库。';
     const smtp=!!cfg.core.SMTP_HOST;viewElement('mail','.page-title h1').textContent=smtp?'邮件服务':'连接邮件服务';viewElement('mail','.page-title>.muted').textContent=smtp?'已填写 SMTP 配置，可在下方修改。是否能实际投递取决于邮箱服务商设置。':'填写邮箱服务商提供的 SMTP 信息，用于邀请、邮箱验证和密码提示。';

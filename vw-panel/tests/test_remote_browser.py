@@ -23,7 +23,7 @@ class RemoteBrowserTests(unittest.TestCase):
     def test_correct_paths_and_no_bucket_guess(self):
         self.setup_remotes()
         self.assertEqual(self.manager.remote_directory('Cloud'),'my-bucket/VaultBackup')
-        self.assertEqual(self.manager.remote_directory('BitwardenBackup'),'/bitwarden/backup/archive')
+        self.assertEqual(self.manager.remote_directory('BitwardenBackup'),'/vwp/backups/archive')
         update_vars(self.backup_dir/'backup.env',{'RCLONE_REMOTE_NAME_1':'Cloud','RCLONE_REMOTE_DIR_1':'/real-bucket/backups'})
         self.assertEqual(self.manager.remote_directory('Cloud'),'real-bucket/backups')
         with self.assertRaisesRegex(ValueError,'Bucket'):self.manager.remote_directory('Unknown')

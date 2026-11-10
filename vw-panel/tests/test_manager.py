@@ -91,7 +91,7 @@ class ManagerTests(unittest.TestCase):
         self.assertIn('[PanelLocal]\ntype = local', text)
         values = read_vars(backup / 'backup.env')
         self.assertEqual(values['RCLONE_REMOTE_NAME'], 'PanelLocal')
-        self.assertEqual(values['RCLONE_REMOTE_DIR'], '/bitwarden/backup/archive')
+        self.assertEqual(values['RCLONE_REMOTE_DIR'], '/vwp/backups/archive')
 
     def test_bare_vault_domain_normalized_and_validation_preserved(self):
         env=self.deploy/'vaultwarden'/'vaultwarden.env'

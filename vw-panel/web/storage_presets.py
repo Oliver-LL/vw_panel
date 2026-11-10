@@ -146,7 +146,7 @@ PRESETS = {
         'type': 'local',
         'description': '使用备份容器可访问的本机路径；保存时不做远程验证。',
         'fields': [
-            _field('directory', '保存目录', config=False, default='/bitwarden/backup/archive', maxlength=512,
+            _field('directory', '保存目录', config=False, default='/vwp/backups/archive', maxlength=512,
                    help='容器内绝对路径；默认挂载的备份目录。'),
         ],
         'target': 'dir',

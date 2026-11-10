@@ -48,6 +48,14 @@ await run(`Array.from(document.querySelectorAll('#remote-files button')).find(bu
 if(!saved.some(item=>item.data.action==='remote-file-delete'&&item.data.name==='CloudTwo'&&item.data.file==='remote-backup.zip'&&item.data.confirmation==='DELETE'))throw Error('Remote deletion lost selected origin');
 await run(`window.autoAcceptDialogs=true`);
 await run(`closeWorkspaceDialogs();location.hash='archives'`);await sleep(150);
+if(!await run(`document.querySelector('.archive-page-actions [data-task="backup-now"]')&&document.getElementById('open-import-backup').parentElement.classList.contains('archive-page-actions')&&!document.querySelector('.local-files-card [data-task="backup-now"]')`))throw Error('Backup action is not beside import in page header');
+await shot('local-backup-header-actions',1440,1000);await shot('local-backup-header-actions-mobile',390,1000);
+await run(`trackTask({id:'backup-remote-result',action:'backup-now'});taskOutcome({id:'backup-remote-result',action:'backup-now',state:'success',result:{backup_result:{destinations:[{name:'CloudTwo',directory:'/actual-folder',local:false}],local_files:[]}}})`);
+if(!await run(`document.getElementById('notice-message').textContent.includes('CloudTwo')&&document.getElementById('notice-message').textContent.includes('本机未留存')&&document.querySelector('#notice .toast-detail').textContent==='浏览远程备份'`))throw Error('Manual backup result does not explain destination');
+await run(`document.querySelector('#notice .toast-detail').click()`);await waitFor(`document.getElementById('remote-files-dialog').open`);
+if(!await run(`document.getElementById('remote-browse-form').elements.directory.value==='/actual-folder'`))throw Error('Backup result browse link lost actual runtime directory');
+await run(`closeWorkspaceDialogs();location.hash='archives'`);await sleep(200);
+
 if(!await run(`document.querySelector('[data-view=archives]').querySelectorAll('.config-group').length===0&&!document.querySelector('[data-view=archives] #remote-browse-form')`))throw Error('Local backups page still contains forms or remote file operations');
 await run(`document.getElementById('open-import-backup').click()`);await waitFor(`document.getElementById('import-backup-dialog').open`);
 await run(`document.getElementById('import-backup-dialog').close();document.querySelector('#backup-files button').click()`);await waitFor(`document.getElementById('restore-backup-dialog').open`);

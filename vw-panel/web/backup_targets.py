@@ -55,6 +55,8 @@ def normalize(manager,targets):
         if enabled and name not in parser:raise ValueError('启用前请先配置对应的存储连接。')
         if not directory or '..' in Path(directory).parts:raise ValueError('请填写有效的保存目录。')
         if name in parser and parser[name].get('type','')=='s3' and not directory.strip('/'):raise ValueError('S3/R2 保存目录必须包含 Bucket。')
+        from backup_result import retained_directory
+        if name in parser and parser[name].get('type','').lower()=='local':directory=retained_directory(directory)
         old=next((item for item in previous if item['name']==name and item['directory']==directory),{})
         identity=row.get('id') or old.get('id') or secrets.token_hex(12)
         if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',identity) or identity in ids:raise ValueError('目标标识重复或不正确。')
@@ -100,6 +102,8 @@ def running(name):
 
 def apply(manager,targets,restore_extra=None):
     from manager import write_private
+    from backup_result import prepare_storage
+    prepare_storage(manager)
     targets=normalize(manager,targets);env_file,meta_file=files(manager);original=env_file.read_text();meta_original=meta_file.read_text() if meta_file.exists() else None
     was_running=running('vaultwarden-backup');paused=False
     try:paused=json.loads(meta_original or '{}').get('paused_for_targets',False)

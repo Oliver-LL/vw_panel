@@ -494,7 +494,7 @@ class OperationsTests(unittest.TestCase):
         self.assertIn('[LocalMirror]\ntype = local',config.read_text())
         env=read_vars(backup/'backup.env')
         self.assertEqual(env['RCLONE_REMOTE_NAME_1'],'LocalMirror')
-        self.assertEqual(env['RCLONE_REMOTE_DIR_1'],'/bitwarden/backup/archive')
+        self.assertEqual(env['RCLONE_REMOTE_DIR_1'],'/vwp/backups/archive')
 
     def test_preset_s3_requires_endpoint_for_non_aws(self):
         self.backup()
