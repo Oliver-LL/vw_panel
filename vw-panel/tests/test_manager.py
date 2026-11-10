@@ -276,6 +276,13 @@ class HTTPRoutesTests(unittest.TestCase):
             self.assertNotIn(b'private-secret-fixture',request('GET','/api/config')[1])
             self.assertEqual(remote_file.read_text(),original)
 
+            with patch('remote_config.cancel',return_value={'ok':True}) as cancel:
+                self.assertEqual(request('POST','/api/storage/wizard/cancel',{'job_id':'fixture'},authenticated=False)[0],401)
+                self.assertEqual(request('POST','/api/storage/wizard/cancel',{'job_id':'fixture'},csrf=False)[0],403)
+                cancel.assert_not_called()
+                self.assertEqual(request('POST','/api/storage/wizard/cancel',{'job_id':'fixture'})[0],200)
+                cancel.assert_called_once_with(app.manager,'fixture')
+
             headers={'Origin':'http://127.0.0.1:%s'%port,'Content-Type':'application/octet-stream','Cookie':'vw_session=fixture','X-CSRF-Token':'csrf-fixture'}
             conn.request('POST','/api/backup/upload?name=fixture.zip',b'archive fixture',headers)
             uploaded=conn.getresponse();self.assertEqual(uploaded.status,200)

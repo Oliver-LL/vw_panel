@@ -422,6 +422,9 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), auth[1]):
             return self.reply(403, {'error': '请求校验失败，请刷新页面。'})
         try:
+            if path == '/api/storage/wizard/cancel':
+                from remote_config import cancel
+                return self.reply(200,cancel(self.app.manager,data.get('job_id')))
             if path == '/api/updates/start':
                 if data.get('confirmed') is not True:raise ValueError('请确认升级面板。')
                 with self.app.operation_lock:

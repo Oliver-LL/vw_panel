@@ -290,12 +290,8 @@ class OperationsMixin:
             'ttionya/vaultwarden-backup:latest',*command],secret=secret)
 
     def rc(self,path,data,folder):
-        # Loopback mode runs entirely inside this disposable container. No RC port is exposed.
-        script='payload=$(cat); exec rclone rc --loopback --config /config/rclone/rclone.conf "$1" --json "$payload"'
-        raw=self._command(['docker','run','--rm','-i','-v',str(folder)+':/config',
-            '--entrypoint','sh','ttionya/vaultwarden-backup:latest','-c',script,'rc',path],
-            json.dumps(data),secret=True)
-        return json.loads(raw)
+        from remote_config import run
+        return run(self,path,data,folder)
 
     def preset_targets(self):
         try:
@@ -666,9 +662,12 @@ class OperationsMixin:
             wizard=getattr(self,'remote_wizard',None)
             if not wizard or wizard['id']!=data.get('wizard_id') or time.time()-wizard['created']>3600:
                 raise ValueError('配置向导已过期，请重新开始。')
+            if wizard.get('choices') and data.get('answer','') not in wizard['choices']:
+                raise ValueError('请先选择本步提供的一个选项，再点击下一步。')
             value=self.rc('config/update',{'name':wizard['name'],'parameters':{'config_is_local':'false'},
                 'opt':{'nonInteractive':True,'continue':True,'state':wizard['state'],
                 'result':data.get('answer',''),'obscure':True}},Path(wizard['folder']))
+        if getattr(self,'remote_cancelled_job',None)==self.job.get('id'):raise ValueError('存储配置已取消，可重新开始或更新面板。')
         wizard=self.remote_wizard
         # The guided route skips only optional client overrides and local-browser questions.
         for _ in range(16):
@@ -678,9 +677,12 @@ class OperationsMixin:
             answer='false' if key=='config_is_local' else ''
             value=self.rc('config/update',{'name':wizard['name'],'parameters':{'config_is_local':'false'},'opt':{'nonInteractive':True,'continue':True,'state':state,'result':answer,'obscure':True}},Path(wizard['folder']))
         state=value.get('State',value.get('state',''))
+        if value.get('Error') and not state:
+            raise ValueError('云盘配置未完成，请检查授权和服务器网络后重新开始。')
         wizard['state']=state
         if state:
             option=value.get('Option',value.get('option',{}))
+            wizard['choices']=[str(item['Value']).lower() if isinstance(item.get('Value'),bool) else str(item.get('Value','')) for item in option.get('Examples',[]) if 'Value' in item] if option.get('Exclusive') else []
             # Never echo secret defaults returned by Rclone.
             if option.get('IsPassword') or re.search(r'pass|token|secret|key',option.get('Name',''),re.I):
                 option['Default']='';option.pop('Value',None)

@@ -220,7 +220,7 @@ class PackagingTests(unittest.TestCase):
                          '756b783a388b087ff48af8db93273543a2ea2ea7009bdcfd50201e671d044aff')
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(['bash', str(ROOT/'install-vw-web.sh'), '--extract', directory], check=True, capture_output=True)
-            for name in ('version.json','panel-cli.sh','vw_original.sh','vw_web.sh','web/server.py','web/session_store.py','web/manager.py','web/compose_yaml.py','web/proxy_environment.py','web/managed_proxy.py','web/existing_npm.py','web/updater.py','web/operations.py','web/browser_oauth.py','web/backup_targets.py','web/backup_result.py','web/storage_presets.py','web/environment.py','web/env_catalog.json','web/tty_worker.py','web/static/index.html','web/static/app.js','web/static/style.css'):
+            for name in ('version.json','panel-cli.sh','vw_original.sh','vw_web.sh','web/server.py','web/session_store.py','web/manager.py','web/compose_yaml.py','web/proxy_environment.py','web/managed_proxy.py','web/existing_npm.py','web/updater.py','web/operations.py','web/remote_config.py','web/browser_oauth.py','web/backup_targets.py','web/backup_result.py','web/storage_presets.py','web/environment.py','web/env_catalog.json','web/tty_worker.py','web/static/index.html','web/static/app.js','web/static/style.css'):
                 self.assertEqual((ROOT/name).read_bytes(), (Path(directory)/name).read_bytes())
 
     def test_corrupted_payload_fails(self):
