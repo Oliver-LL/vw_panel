@@ -1126,7 +1126,7 @@ function syncVersionPopover(){
     $('upgrade-panel').hidden=!available||panelUpdating;
     $('upgrade-panel').textContent=panelUpdating?'正在更新…':'↓ 立即更新';
     $('upgrade-panel').disabled=checkingUpdates||panelUpdating||taskRunning||consoleRunning;
-    $('cancel-storage-for-update').hidden=!storageWizardRunning()||panelUpdating;
+    $('cancel-storage-for-update').hidden=!available||!storageWizardRunning()||panelUpdating;
     if(storageWizardRunning()&&available)$('update-message').textContent='存储配置正在执行，结束配置后即可更新。';
     if(versionPopoverOpen)requestAnimationFrame(positionVersionPopover);
 }

@@ -116,6 +116,11 @@ if(!saved.some(item=>item.path==='/api/storage/wizard/cancel'&&item.data.job_id=
 if(!await run(`!document.getElementById('upgrade-panel').disabled`))throw Error('Update remained blocked after cancelling configuration');
 await run(`setVersionPopover(false);closeWorkspaceDialogs()`);
 updateInfo={...updateInfo,available:false};
+await run(`await api('test-state',{job:{id:'running-with-latest-version',state:'running',action:'remote-continue',title:'继续云盘配置',output:'',error:''}});await poll();await checkPanelUpdates(true);setVersionPopover(true)`);
+if(!await run(`document.getElementById('cancel-storage-for-update').hidden`))throw Error('Latest-version popup unnecessarily offers configuration cancellation');
+await run(`await api('test-state',{job:{id:'drive-saved',state:'success',action:'remote-continue',title:'云盘配置',output:'已保存',error:'',result:{done:true}},status:{available:true,docker_installed:true,containers:[{Names:'vaultwarden',State:'running',Status:'Up'},{Names:'vaultwarden-backup',State:'running',Status:'Up'}]}});await poll();setVersionPopover(false);closeWorkspaceDialogs()`);
+if(!await run(`!taskRunning&&Array.from(document.querySelectorAll('[data-task="stop"],[data-task="backup-stop"]')).every(button=>!button.disabled)&&document.getElementById('cancel-storage-wizard').hidden`))throw Error('Service controls stayed locked after successful cloud configuration');
+
 for(const [action,result,expected]of [['remote-list',{remote_files:[{},{},{}]},'3 份'],['remote-providers',{providers:[{},{},{}]},'3 种'],['mail-test',null,'提交发送'],['doctor',null,'检查报告'],['logs',null,'日志已读取'],['remote-about',{storage_info:{available:false}},'未返回容量']]){
  await run(`trackTask({id:'feedback-${action}',action:'${action}'});taskOutcome({id:'feedback-${action}',action:'${action}',state:'success',result:${JSON.stringify(result)},title:'测试'})`);
  if(!await run(`document.getElementById('notice-message').textContent.includes('${expected}')&&!document.getElementById('notice-message').textContent.includes('操作成功')`))throw Error('Vague operation feedback: '+action);

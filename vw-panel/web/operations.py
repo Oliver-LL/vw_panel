@@ -671,7 +671,10 @@ class OperationsMixin:
         wizard=self.remote_wizard
         # The guided route skips only optional client overrides and local-browser questions.
         for _ in range(16):
-            option=value.get('Option',value.get('option',{}));state=value.get('State',value.get('state',''))
+            state=value.get('State',value.get('state',''))
+            if not state:break
+            option=value.get('Option') or value.get('option') or {}
+            if not isinstance(option,dict):raise ValueError('云盘配置返回的问题格式无法识别，请重新开始。')
             key=option.get('Name','')
             if not state or not wizard.get('guided') or wizard['type'] not in ('drive','onedrive','dropbox') or option.get('Required') or key not in ('client_id','client_secret','root_folder_id','service_account_file','config_is_local'):break
             answer='false' if key=='config_is_local' else ''
@@ -681,7 +684,9 @@ class OperationsMixin:
             raise ValueError('云盘配置未完成，请检查授权和服务器网络后重新开始。')
         wizard['state']=state
         if state:
-            option=value.get('Option',value.get('option',{}))
+            option=value.get('Option') or value.get('option') or {}
+            if not isinstance(option,dict) or not option.get('Name'):
+                raise ValueError('云盘配置未能返回下一步，请检查授权结果后重新开始。')
             wizard['choices']=[str(item['Value']).lower() if isinstance(item.get('Value'),bool) else str(item.get('Value','')) for item in option.get('Examples',[]) if 'Value' in item] if option.get('Exclusive') else []
             # Never echo secret defaults returned by Rclone.
             if option.get('IsPassword') or re.search(r'pass|token|secret|key',option.get('Name',''),re.I):
@@ -699,6 +704,7 @@ class OperationsMixin:
             if browser:self.job['result']['oauth_available']=browser
             self.emit('请在远程存储页面继续填写配置问题。')
         else:
+            self.emit('云盘配置流程已完成，正在保存存储配置。')
             original=config.read_text() if config.exists() else ''
             if original!=wizard['original']:raise ValueError('远程配置已发生变化，请重新开始，避免覆盖其他修改。')
             if config.exists():write_private(config.with_name('rclone.conf.panel-backup'),original)

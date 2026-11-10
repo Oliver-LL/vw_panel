@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -78,3 +79,52 @@ class RemoteConfigTests(unittest.TestCase):
         result=remote_config.cancel(self.manager,'idle-wizard')
         self.assertTrue(result['ok']);self.assertIsNone(self.manager.remote_wizard);self.assertFalse(folder.exists())
         self.assertNotIn('question',self.manager.job['result']);self.assertEqual(self.config.read_text(),original)
+
+    def test_null_option_completion_saves_config_for_guided_and_full_wizards(self):
+        folder=self.prepare()
+        candidate=folder/'rclone/rclone.conf'
+        candidate.write_text(candidate.read_text()+'\n[GoogleDrive]\ntype = drive\ntoken = fixture-only-token\n')
+        for guided in (True,False):
+            if not folder.exists():
+                (folder/'rclone').mkdir(parents=True);candidate.write_text(self.config.read_text())
+            self.manager.remote_wizard={'id':'wizard','state':'teamdrive_ok','folder':str(folder),'name':'GoogleDrive','type':'drive','created':time.time(),'original':self.config.read_text(),'choices':['true','false'],'guided':guided}
+            with patch.object(self.manager,'rc',return_value={'Error':'','Option':None,'Result':'','State':''}):
+                self.manager.start('remote-continue',{'wizard_id':'wizard','answer':'false'})
+                job=self.wait_job();self.assertEqual(job['state'],'success');self.assertTrue(job['result']['done'])
+            self.assertIn('[GoogleDrive]',self.config.read_text());self.assertIsNone(self.manager.remote_wizard)
+            self.assertNotIn('fixture-only-token',json.dumps(job))
+            self.manager.task_worker.join(2)
+            with self.manager.exclusive():pass
+
+    def test_unexpected_exception_finishes_task_and_allows_next_task(self):
+        self.prepare()
+        with patch.object(self.manager,'run_extended',side_effect=AttributeError('private-exception-fixture')):
+            self.manager.start('remote-providers',{});job=self.wait_job();self.assertEqual(job['state'],'failed')
+        self.assertNotIn('private-exception-fixture',json.dumps(job));self.assertIn('AttributeError',job['output'])
+        self.manager.task_worker.join(2)
+        with patch.object(self.manager,'run_extended',return_value=None):
+            self.manager.start('remote-providers',{});self.assertEqual(self.wait_job()['state'],'success')
+
+    def test_dead_worker_state_is_recovered_but_live_worker_is_not_interrupted(self):
+        self.manager.job={'id':'tracked-job','state':'running'};self.manager.task_worker_job='tracked-job'
+        class Worker:
+            alive=True
+            def is_alive(self):return self.alive
+        worker=Worker();self.manager.task_worker=worker
+        self.assertEqual(self.manager.task()['state'],'running')
+        worker.alive=False
+        self.assertEqual(self.manager.task()['state'],'failed')
+
+    @unittest.skipUnless(os.environ.get('VWP_TEST_RCLONE'),'Optional real Rclone executable not supplied')
+    def test_real_rclone_personal_drive_final_step(self):
+        folder=self.prepare();candidate=folder/'rclone/rclone.conf'
+        candidate.write_text(candidate.read_text()+'\n[GoogleDrive]\ntype = drive\ntoken = {"access_token":"fixture-only-access","token_type":"Bearer","refresh_token":"fixture-only-refresh","expiry":"2099-01-01T00:00:00Z"}\n')
+        self.manager.remote_wizard.update(state='teamdrive_ok',guided=True)
+        def rc(path,data,folder):
+            result=subprocess.run([os.environ['VWP_TEST_RCLONE'],'rc','--loopback','--config',str(folder/'rclone/rclone.conf'),path,'--json',json.dumps(data)],capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0)
+            value=json.loads(result.stdout);self.assertIsNone(value['Option']);self.assertEqual(value['State'],'');return value
+        with patch.object(self.manager,'rc',side_effect=rc):
+            self.manager.start('remote-continue',{'wizard_id':'wizard','answer':'false'});job=self.wait_job();self.assertEqual(job['state'],'success');self.assertTrue(job['result']['done'])
+        self.assertIn('[GoogleDrive]',self.config.read_text());self.assertIsNone(self.manager.remote_wizard)
+        self.assertNotIn('fixture-only-access',json.dumps(job));self.assertNotIn('fixture-only-refresh',json.dumps(job))

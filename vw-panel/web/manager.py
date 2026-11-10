@@ -457,6 +457,9 @@ class Manager(ManagedProxyMixin, OperationsMixin):
 
     def task(self):
         with self.mutex:
+            worker=getattr(self,'task_worker',None)
+            if self.job.get('state')=='running' and worker is not None and getattr(self,'task_worker_job',None)==self.job.get('id') and not worker.is_alive():
+                self.job.update(state='failed',error='后台任务已异常结束，请重新读取配置后重试；现在可以更新面板。')
             result = dict(self.job)
             if self.logfile:
                 self.logfile.flush()
@@ -503,7 +506,13 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             self.logfile = tempfile.NamedTemporaryFile(mode='w+b', delete=False, dir=self.state, prefix='panel-task-', suffix='.log')
             self.job = {'id': secrets.token_hex(8), 'state': 'running', 'title': titles[action],
                         'output': '', 'error': '', 'action': action, 'started': time.time()}
-        threading.Thread(target=self._run, args=(action, password, guard), daemon=True).start()
+            self.task_worker=threading.Thread(target=self._run, args=(action, password, guard), daemon=True)
+            self.task_worker_job=self.job['id']
+            try:self.task_worker.start()
+            except Exception:
+                self.job.update(state='failed',error='无法启动后台任务，请稍后重试。')
+                guard.__exit__(None,None,None)
+                raise ValueError('无法启动后台任务，请稍后重试。')
         return self.task()
 
     def _command(self, args, input_text=None, secret=False):
@@ -677,12 +686,18 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         except (ValueError, OSError, subprocess.SubprocessError, configparser.Error, sqlite3.Error, tarfile.TarError) as error:
             with self.mutex:
                 self.job.update(state='failed', error=str(error))
+        except Exception as error:
+            # A worker crash must never leave a finished thread recorded as running.
+            # Do not log exception values: they may contain credential-bearing responses.
+            self.emit('任务意外中断，异常类型：'+type(error).__name__)
+            with self.mutex:
+                self.job.update(state='failed',error='操作意外中断，任务已结束。请重新读取配置确认状态，再重试；现在可以更新面板。')
         finally:
             try:
                 self.note_changes(before)
                 if succeeded:
                     with self.mutex:self.job['state']='success'
-            except (OSError,ValueError):
+            except Exception:
                 with self.mutex:self.job.update(state='failed',error='配置应用记录保存失败，请检查面板状态目录权限。')
             finally:guard.__exit__(None, None, None)
 
