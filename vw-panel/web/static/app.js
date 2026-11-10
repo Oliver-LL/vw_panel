@@ -911,10 +911,10 @@ function applyPresentation(bar,scope,row){
     else if(unsaved){title='有尚未保存的修改';description='先保存修改，再应用到'+(scope==='core'?'密码库':'备份服务')+'。';label='请先保存配置'}
     else if(!configured){bar.hidden=true;return}
     else if(scope==='core'&&!cfg.admin_set){title='还需设置管理口令';description='基本配置已保存，请先设置并加密管理后台口令。';label='设置管理口令';needsToken=true}
-    else if(pending){title=failed?'上次应用未成功，配置仍待应用':'有新配置待应用';description='保存的设置尚未通过面板重新加载。应用时服务可能短暂中断。';label=active?'应用新配置':row?'启动并应用配置':'部署并应用配置'}
+    else if(pending){title=failed?'上次应用未成功，配置仍待应用':'有新配置待应用';description=active?'将重新创建服务容器并加载已保存配置，期间服务会短暂中断，数据保留。':'启动服务并加载已保存的配置。';label=active?'重启并应用':'启动服务'}
     else if(environment?.unknown||!environment?.available){bar.hidden=true;return}
-    else if(!row){title=scope==='core'?'配置已就绪，可以部署密码库':'备份计划已保存，尚未启用';description=scope==='core'?'将下载所需镜像并启动服务。':'启动备份服务后，才会按计划执行备份。';label=scope==='core'?'部署密码库':'启用自动备份'}
-    else if(!active){title=scope==='core'?'密码库服务已停止':'自动备份已暂停';description='配置和数据仍保留，可以在需要时重新启动。';label=scope==='core'?'启动密码库':'启动备份服务'}
+    else if(!row){title=scope==='core'?'配置已就绪，可以部署密码库':'备份计划已保存，尚未启用';description=scope==='core'?'将下载所需镜像并启动服务。':'启动备份服务后，才会按计划执行备份。';label='启动服务'}
+    else if(!active){title=scope==='core'?'密码库服务已停止':'自动备份已暂停';description='配置和数据仍保留，可以在需要时重新启动。';label='启动服务'}
     else{bar.hidden=true;return}
     bar.hidden=false;bar.querySelector('strong').textContent=title;bar.querySelector('p').textContent=description;
     const button=bar.dataset.actionButton?$(bar.dataset.actionButton):bar.querySelector('button');button.textContent=label;
@@ -968,13 +968,13 @@ function renderPresentation(){
     viewElement('mail','.form-footer>span').textContent=hasUnsaved('core')?'修改尚未保存':corePending?'已保存，等待应用到密码库':smtp?'修改设置后保存，再应用到密码库':'填写后保存，邮件配置由密码库服务加载';
     const backupGroup=$('backup-form').querySelector('.config-group .card-heading p');if(backupGroup)backupGroup.textContent=cfg.backup_configured?'管理备份频率、保留策略与加密密码；已有远程目标保持不变。':'新建备份计划默认保存到本机，也可以添加远程目标。';
     $('backup-form').querySelector('.form-footer>span').textContent=hasUnsaved('backup')?'修改尚未保存':backupPending?'计划已保存，等待应用到备份服务':cfg.backup_configured?'修改计划后保存，再应用备份配置':'先填写备份计划与加密密码';
-    for(const button of document.querySelectorAll('[data-task="backup-start"]'))if(!button.closest('[data-apply-scope]')&&(button.id!=='backup-service-start'||document.querySelector('[data-apply-scope=backup]').hidden))button.textContent=backupPending?'应用配置':backupActive?'应用配置':'启用服务';
+    for(const button of document.querySelectorAll('[data-task="backup-start"]'))if(!button.closest('[data-apply-scope]')&&(button.id!=='backup-service-start'||document.querySelector('[data-apply-scope=backup]').hidden))button.textContent=backupActive?'重启并应用':'启动服务';
     const backupUnknown=!environment.available||environment.unknown;
     $('core-service-status').textContent=backupUnknown?'状态未知':active?'运行中':core?'已停止':cfg.configured?'待启用':'未配置';
     $('core-service-status').classList.toggle('is-running',!!active&&!backupUnknown);
     $('core-service-description').textContent=backupUnknown?'暂时无法确认服务状态，请刷新后重试。':active?'配置修改后保存，再应用到服务。':core?'服务已停止，配置与数据保留。':cfg.configured?'完成配置后即可启用服务。':'先填写并保存下方配置，再启用服务。';
     const coreStart=$('core-service-start');
-    if(viewElement('vault','[data-apply-scope]').hidden){coreStart.textContent=active?'应用配置':'启用服务';coreStart.disabled=taskRunning||backupUnknown||!ready||hasUnsaved('core');coreStart.onclick=()=>startTask('deploy')}
+    if(viewElement('vault','[data-apply-scope]').hidden){coreStart.textContent=active?'重启并应用':'启动服务';coreStart.disabled=taskRunning||backupUnknown||!ready||hasUnsaved('core');coreStart.onclick=()=>startTask('deploy')}
     $('core-service').querySelector('[data-task="upgrade"]').disabled=taskRunning||backupUnknown||!core||!ready;
 
     const prerequisite=!cfg.configured||!cfg.admin_set;
