@@ -12,11 +12,11 @@ ROOT = Path(__file__).resolve().parent
 # Maintain vw_web.sh directly; packaging must never overwrite source files.
 if hashlib.sha256((ROOT / 'vw_original.sh').read_bytes()).hexdigest() != '756b783a388b087ff48af8db93273543a2ea2ea7009bdcfd50201e671d044aff':
     raise SystemExit('Original script snapshot changed; refusing to package.')
-paths = ['panel-cli.sh', 'vw_web.sh', 'vw_original.sh', 'web/server.py', 'web/session_store.py', 'web/manager.py', 'web/compose_yaml.py', 'web/proxy_environment.py', 'web/managed_proxy.py', 'web/existing_npm.py', 'web/updater.py', 'web/operations.py', 'web/storage_presets.py', 'web/environment.py', 'web/env_catalog.json', 'web/tty_worker.py', 'web/static/index.html', 'web/static/app.js', 'web/static/style.css']
+paths = ['panel-cli.sh', 'vw_web.sh', 'vw_original.sh', 'web/server.py', 'web/session_store.py', 'web/manager.py', 'web/compose_yaml.py', 'web/proxy_environment.py', 'web/managed_proxy.py', 'web/existing_npm.py', 'web/updater.py', 'web/operations.py','web/browser_oauth.py','web/backup_targets.py', 'web/storage_presets.py', 'web/environment.py', 'web/env_catalog.json', 'web/tty_worker.py', 'web/static/index.html', 'web/static/app.js', 'web/static/style.css']
 source = hashlib.sha256()
 for name in paths + ['installer-header.sh', 'build.py']:
     source.update(name.encode() + b'\0' + (ROOT / name).read_bytes() + b'\0')
-version = {'version': '0.7.17', 'build_id': source.hexdigest()}
+version = {'version': '0.7.18', 'build_id': source.hexdigest()}
 (ROOT / 'version.json').write_text(json.dumps(version, sort_keys=True) + '\n')
 paths.append('version.json')
 buffer = io.BytesIO()

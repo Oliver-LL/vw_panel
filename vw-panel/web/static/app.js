@@ -34,7 +34,7 @@ $('action-dialog-form').onsubmit=event=>{
     if(pendingDialog.input){const value=$('action-dialog-input').value.trim();if(!value||(pendingDialog.expected&&value!==pendingDialog.expected)){$('action-dialog-error').textContent=pendingDialog.expected?'请输入 '+pendingDialog.expected+' 以确认。':'请填写确认内容。';$('action-dialog-error').hidden=false;$('action-dialog-input').setAttribute('aria-invalid','true');$('action-dialog-input').focus();return}dismissActionDialog(value)}else dismissActionDialog(true);
 };
 
-const names={overview:'运行概览',vault:'密码库配置',mail:'邮件服务',proxy:'域名与反代',backup:'备份设置',archives:'备份文件与恢复',tasks:'任务与日志',settings:'面板设置',remote:'远程存储',restore:'备份与恢复',diagnostics:'诊断与状态',cleanup:'卸载与清理'};
+const names={overview:'运行概览',vault:'密码库配置',mail:'邮件服务',proxy:'域名与反代',backup:'备份设置',targets:'备份目标',archives:'备份文件与恢复',tasks:'任务与日志',settings:'面板设置',remote:'远程存储',restore:'备份与恢复',diagnostics:'诊断与状态',cleanup:'卸载与清理'};
 let lastStatus=0;
 let proxyLogPreference='';
 let proxySourcePreference='auto',autoProxyTarget='',autoInstallMode='caddy';
@@ -76,7 +76,7 @@ function notice(message,error=false,options={}){
     const kind=error?'error':options.kind||(/^(请|有|未|暂|当前)/.test(message)?'info':'success');box.className='toast '+kind;box.setAttribute('role',error?'alert':'status');
     const icon=document.createElement('span');icon.className='toast-icon';icon.setAttribute('aria-hidden','true');icon.textContent=kind==='loading'?'':kind==='error'?'!':kind==='success'?'✓':'i';
     const text=document.createElement('span');text.id='notice-message';text.textContent=message;box.append(icon,text);
-    if(options.detail){const detail=document.createElement('button');detail.type='button';detail.className='toast-detail';detail.textContent=options.detailLabel||'查看失败详情';detail.onclick=event=>{event.stopPropagation();if(options.onDetail)options.onDetail();else{location.hash='tasks';$('task-details').open=true}};box.append(detail)}
+    if(options.detail){const detail=document.createElement('button');detail.type='button';detail.className='toast-detail';detail.textContent=options.detailLabel||'查看失败详情';detail.onclick=event=>{event.stopPropagation();if(options.onDetail)options.onDetail();else{closeWorkspaceDialogs();location.hash='tasks';$('task-details').open=true}};box.append(detail)}
     const close=document.createElement('button');close.type='button';close.className='toast-close';close.setAttribute('aria-label','关闭提示');close.textContent='×';close.onclick=()=>notice('');box.append(close);
     if(kind==='success'||kind==='info')noticeTimer=setTimeout(()=>notice(''),5000);
 }
@@ -85,13 +85,17 @@ function taskOutcome(job){
     if(!trackedTask||trackedTask.id!==job.id||job.state==='running')return;
     const action=trackedTask.action||job.action;trackedTask=null;
     if(job.state==='failed'){if(action==='remote-preset-save')presetSubmitted=null;notice((job.error||'操作失败，请查看执行详情。'),true,{detail:true});return}
-    if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form');if(form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');presetTouched=false}presetSubmitted=null}
+    if(action==='backup-target-save'){$('target-dialog').close();dirty.delete('target-editor-form')}
+    if(action==='backup-target-toggle'||action==='backup-target-save'){notice((cfg?.extras?.targets||[]).some(row=>row.enabled!==false)?'备份目标已更新。':'所有目标已停用，备份投递已暂停。');return}
+    if(action==='remote-oauth-start'){notice('授权链接已生成，请打开服务商授权页面继续。',false,{kind:'info'});return}
+    if(action==='remote-preset-save'&&presetSubmitted){const form=$('preset-form');if(form&&JSON.stringify(formValues('preset-form'))===presetSubmitted){form.querySelectorAll('input[type=password]').forEach(input=>input.value='');dirty.delete('preset-form');presetTouched=false;$('storage-dialog').close()}presetSubmitted=null}
     if(job.state!=='success'||['logs','backup-logs','proxy-logs'].includes(action)||job.result?.question)return;
-    const messages={deploy:'主服务已启动，配置已应用',upgrade:'主服务升级成功','backup-start':'备份服务已启动，配置已应用','backup-stop':'自动备份已暂停','backup-now':'备份任务已完成','upgrade-backup':'备份服务升级成功',stop:'主服务已停止','admin-token':'管理口令已加密保存','remote-save':'WebDAV 连接已保存','remote-r2-save':'Cloudflare R2 存储已保存（只读验证通过）','remote-preset-save':'云存储配置已保存','remote-download':'备份已下载到服务器','existing-npm':'NPM 站点与 HTTPS 已配置','remove-services':'服务卸载成功',restore:'备份恢复成功'};
+    if((['remote-oauth-complete','remote-continue'].includes(action)&&job.result?.done)||action==='restore'){const dialog=$(action==='restore'?'restore-backup-dialog':'storage-dialog');dialog.close()}
+    const messages={deploy:'主服务已启动，配置已应用',upgrade:'主服务升级成功','backup-start':'备份服务已启动，配置已应用','backup-stop':'自动备份已暂停','backup-now':'备份任务已完成','upgrade-backup':'备份服务升级成功',stop:'主服务已停止','admin-token':'管理口令已加密保存','remote-save':'WebDAV 连接已保存','remote-r2-save':'Cloudflare R2 存储已保存（只读验证通过）','remote-oauth-complete':'云盘授权完成，存储配置已保存','remote-preset-save':'云存储配置已保存','remote-download':'备份已下载到服务器','existing-npm':'NPM 站点与 HTTPS 已配置','remove-services':'服务卸载成功',restore:'备份恢复成功'};
     notice(messages[action]||'操作成功');
 }
 
-function route(){const requested=location.hash.slice(1);const page=requested==='restore'?'archives':requested in names?requested:'overview';if(requested==='restore'){history.replaceState(null,'','#archives');requestAnimationFrame(()=>{if(location.hash!=='#archives')return;const form=$('restore-form');revealGroup(form);form.closest('.config-group')?.scrollIntoView({block:'start'})})};document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==page);document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active',v.dataset.page===page));document.querySelectorAll('.nav-group').forEach(group=>{group.open=!!group.querySelector('[data-page="'+page+'"]')});$('breadcrumb').textContent=names[page];document.title=names[page]+' · Vaultwarden'}
+function route(){const requested=location.hash.slice(1);const page=requested==='restore'?'archives':requested in names?requested:'overview';if(requested==='restore'){history.replaceState(null,'','#archives');requestAnimationFrame(()=>{if(location.hash!=='#archives')return;const form=$('restore-form');revealGroup(form);form.closest('.config-group')?.scrollIntoView({block:'start'})})};document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==page);document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active',v.dataset.page===page));document.querySelectorAll('.nav-group').forEach(group=>{group.open=!!group.querySelector('[data-page="'+page+'"]')});for(const dialog of document.querySelectorAll('dialog.workspace-dialog[open]'))if(dialog.querySelector('[data-view]')?.dataset.view!==page)dialog.close();$('breadcrumb').textContent=names[page];document.title=names[page]+' · Vaultwarden'}
 addEventListener('hashchange',()=>{dismissActionDialog();route();notice('')});route();
 let authRecheck=null;
 function isAuthMessage(message){return typeof message==='string'&&/^请先登录[。.!！]?$/.test(message.trim())}
@@ -139,6 +143,7 @@ async function api(path,data,retried=false){
     return value;
 }
 function showLogin(message=''){
+    closeWorkspaceDialogs();
     invalidateAuth('anonymous');$('auth-loading').hidden=true;$('workspace').hidden=true;$('login').hidden=false;
     document.querySelectorAll('input[type=password]').forEach(v=>v.value='');$('login-error').textContent=typeof message==='string'?message:'';
     $('login-form').querySelector('button').disabled=false;$('login-form').querySelector('button').textContent='登录管理中心 →';
@@ -171,7 +176,7 @@ $('login-form').onsubmit=async event=>{
     finally{if(epoch===authEpoch){button.disabled=false;button.textContent='登录管理中心 →'}}
 };
 $('logout').onclick=async()=>{try{await api('logout',{});showLogin()}catch(error){if(isSessionTransition(error))return;notice(error.message,true)}};
-for(const id of ['core-form','permissions-form','mail-form','backup-form','preset-form','advanced-form','push-form','notifications-form','targets-form']){const form=$(id);if(!form)continue;form.addEventListener('input',()=>dirty.add(id));form.addEventListener('change',()=>dirty.add(id))}
+for(const id of ['core-form','permissions-form','mail-form','backup-form','preset-form','advanced-form','push-form','notifications-form','target-editor-form']){const form=$(id);if(!form)continue;form.addEventListener('input',()=>dirty.add(id));form.addEventListener('change',()=>dirty.add(id))}
 function fill(id,values){if(dirty.has(id))return;const form=$(id);for(const [key,value]of Object.entries(values)){const field=form.elements.namedItem(key);if(!field)continue;if(field.type==='checkbox')field.checked=value===true||value==='true';else{if(field.tagName==='SELECT'&&value&&!Array.from(field.options).some(o=>o.value===value)){field.add(new Option('当前设置：'+value,value))}field.value=value}}}
 function formatSize(bytes){return bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':(bytes/1024).toFixed(1)+' KB'}
 function proxyContext(value){return value?JSON.stringify([value.configured,value.mode,value.network,value.proxy_target,value.proxy?.kind]):''}
@@ -185,7 +190,7 @@ function renderVaultAddresses(){
     $('open-vault-admin').title=cfg?.admin_set?'使用密码库管理口令登录':'需先设置密码库管理口令';
 }
 async function loadConfig(){try{const previousContext=proxyContext(cfg);cfg=await api('config');if(previousContext&&previousContext!==proxyContext(cfg)){proxyEnvironment=null;proxyLogPreference='';proxyDetectionSequence++;proxyDetectionLoading=false}const defaults={SIGNUPS_ALLOWED:!cfg.configured,INVITATIONS_ALLOWED:true,SENDS_ALLOWED:false};for(const key of Object.keys(defaults)){if(cfg.core[key]!=='')defaults[key]=cfg.core[key]}fill('core-form',{...cfg.core,...defaults,directory:cfg.directory,mode:cfg.mode,port:cfg.port,network:cfg.network});fill('permissions-form',{...cfg.core,...defaults});fill('mail-form',{SMTP_PORT:'587',SMTP_SECURITY:'starttls',...Object.fromEntries(Object.entries(cfg.core).filter(([,v])=>v!==''))});fill('backup-form',{CRON:'0 3 * * *',BACKUP_KEEP_DAYS:'30',TIMEZONE:'Asia/Shanghai',ZIP_ENABLE:true,ZIP_TYPE:'zip',BACKUP_FILE_SUFFIX:'%Y%m%d-%H%M%S',DISPLAY_NAME:'vaultwarden',...Object.fromEntries(Object.entries(cfg.backup).filter(([,v])=>v!==''))});$('admin-badge').textContent=cfg.admin_set?'已设置 · 留空保留':'尚未设置';$('admin-badge').className='badge'+(cfg.admin_set?' success':'');for(const field of $('core-form').elements){if(['directory','mode','port','network'].includes(field.name))field.disabled=cfg.configured}$('topology-note').hidden=!cfg.configured;const smtp=$('mail-form').elements.SMTP_PASSWORD;smtp.placeholder=cfg.smtp_password_set?'已保存 · 留空保留原值':'填写邮箱授权码';$('backup-form').elements.ZIP_PASSWORD.placeholder=cfg.zip_password_set?'已保存 · 留空保留原值':'首次配置请设置加密密码';$('step-config').classList.toggle('done',cfg.configured);$('step-config').querySelector('b').textContent=cfg.configured?'已保存':'待配置';$('step-token').classList.toggle('done',cfg.admin_set);$('step-token').querySelector('b').textContent=cfg.admin_set?'已保护':'待设置';renderVaultAddresses();renderFiles(cfg.files);renderExtras(cfg);routeHelp();updateGroupSummaries();renderPresentation();if(!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
-function renderFiles(files){const box=$('backup-files');box.replaceChildren();if(!files.length){const empty=document.createElement('div');empty.className='empty';const title=document.createElement('strong');title.textContent='还没有本机备份';empty.append(title,document.createTextNode('保存备份计划并启用后，点击“立即备份”创建第一份。'));box.append(empty)}for(const file of files){const row=document.createElement('div');row.className='file-row';for(const [i,value]of [file.name,formatSize(file.size),new Date(file.modified*1000).toLocaleString('zh-CN',{hour12:false})].entries()){const span=document.createElement(i===0?'strong':'span');span.textContent=value;row.append(span)}const actions=document.createElement('div');actions.className='backup-file-actions';const download=document.createElement('a');download.textContent='下载';download.href='/api/backups/download?file='+encodeURIComponent(file.name);actions.append(download);if(/\.(zip|7z)$/i.test(file.name)){const restore=document.createElement('button');restore.type='button';restore.className='ghost';restore.textContent='选择恢复';restore.onclick=()=>{const form=$('restore-form');form.elements.file.value=file.name;form.elements.confirmation.value='';revealGroup(form);form.closest('.config-group').scrollIntoView({behavior:'smooth',block:'start'})};actions.append(restore)}row.append(actions);box.append(row)}const latest=files[0];$('latest-backup').textContent=latest?new Date(latest.modified*1000).toLocaleDateString('zh-CN'):'暂无归档';$('latest-detail').textContent=latest?latest.name:'启用自动备份，保护你的数据'}
+function renderFiles(files){const box=$('backup-files');box.replaceChildren();if(!files.length){const empty=document.createElement('div');empty.className='empty';const title=document.createElement('strong');title.textContent='还没有本机备份';empty.append(title,document.createTextNode('保存备份计划并启用后，点击“立即备份”创建第一份。'));box.append(empty)}for(const file of files){const row=document.createElement('div');row.className='file-row';for(const [i,value]of [file.name,formatSize(file.size),new Date(file.modified*1000).toLocaleString('zh-CN',{hour12:false})].entries()){const span=document.createElement(i===0?'strong':'span');span.textContent=value;row.append(span)}const actions=document.createElement('div');actions.className='backup-file-actions';const download=document.createElement('a');download.textContent='下载';download.href='/api/backups/download?file='+encodeURIComponent(file.name);actions.append(download);if(/\.(zip|7z)$/i.test(file.name)){const restore=document.createElement('button');restore.type='button';restore.className='ghost';restore.textContent='选择恢复';restore.onclick=()=>{const form=$('restore-form');if(form.elements.file.value!==file.name)form.elements.password.value='';form.elements.file.value=file.name;form.elements.confirmation.value='';revealGroup(form);form.closest('.config-group').scrollIntoView({behavior:'smooth',block:'start'})};actions.append(restore)}row.append(actions);box.append(row)}const latest=files[0];$('latest-backup').textContent=latest?new Date(latest.modified*1000).toLocaleDateString('zh-CN'):'暂无归档';$('latest-detail').textContent=latest?latest.name:'启用自动备份，保护你的数据'}
 function proxyNetworkChoices(){
     const choices=new Map();
     const target=$('core-form').elements.PROXY_TARGET.value;
@@ -387,7 +392,7 @@ function normalizeVaultAddress(){const field=$('core-form').elements.DOMAIN;cons
 $('core-form').elements.DOMAIN.addEventListener('blur',()=>{const field=$('core-form').elements.DOMAIN,previous=field.value;normalizeVaultAddress();if(previous!==field.value)field.dispatchEvent(new Event('input',{bubbles:true}))});
 for(const [id,section]of [['core-form','core'],['permissions-form','permissions'],['mail-form','mail'],['backup-form','backup']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget;const button=form.querySelector('button[type=submit]')||form.querySelector('button');button.disabled=true;try{if(id==='core-form')normalizeVaultAddress();const data=formValues(id);const result=await api('config/'+section,data);dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(v=>v.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
 async function refreshStatus(){try{const status=await api('status');environment=status;lastStatus=Date.now();for(const [name,id]of [['vaultwarden','vault'],['vaultwarden-backup','backup']]){const row=status.containers.find(r=>r.Names===name),active=row&&row.State==='running';$(id+'-state').textContent=!status.available?(status.docker_installed===false?'环境未就绪':'状态未知'):!row?'尚未部署':active?'运行中':'已停止';$(id+'-state').classList.toggle('good',!!active);$(id+'-detail').textContent=row?row.Status:status.message||'完成配置后即可启动';if(id==='vault'){$('step-deploy').classList.toggle('done',!!active);$('step-deploy').querySelector('b').textContent=active?'已运行':'待部署';$('setup-heading').textContent=active?'你的密码库，正在安心运行。':'三步，拥有自己的密码库。'}}$('docker-help').hidden=status.available;renderPresentation()}catch(e){if(isSessionTransition(e))return;environment={unknown:true,available:false,docker_installed:null,containers:[]};for(const id of ['vault','backup']){$(id+'-state').textContent='状态未知';$(id+'-state').classList.remove('good');$(id+'-detail').textContent='暂时无法读取服务状态'}renderPresentation();notice(e.message,true)}}
-async function startTask(action,extra={}){const epoch=authEpoch;if(action==='proxy-logs'){if(!$('proxy-log-source').value){notice('请先在诊断与状态中选择反代日志来源。',true);return false}extra={...extra,proxy_id:$('proxy-log-source').value}}if(panelUpdating){notice('面板正在升级，请完成后再操作。',true);return false}if(taskRunning){notice('已有任务正在执行，请等待完成。',false,{kind:'info',detail:true,detailLabel:'查看任务'});return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}if(action==='backup-start'&&(!cfg?.configured||!cfg?.admin_set)){notice('请先保存主服务配置并设置管理口令。',true);return false}if(action==='backup-start'&&!environment?.containers?.some(row=>row.Names==='vaultwarden'&&row.State==='running')&&!await confirmDialog('将先启动密码库主服务，再启用备份服务。',{title:'启用备份服务',accept:'启动服务'}))return false;const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!await confirmDialog(confirmations[action],{title:({'upgrade-backup':'升级备份服务',stop:'停止主服务',upgrade:'升级主服务','backup-stop':'暂停自动备份','install-docker':'安装 Docker'})[action],accept:({'upgrade-backup':'开始升级',stop:'确认停止',upgrade:'开始升级','backup-stop':'确认暂停','install-docker':'确认安装'})[action],danger:action==='stop'}))return false;if(epoch!==authEpoch||authPhase!=='authenticated')return false;if(taskRunning||panelUpdating){notice('已有操作正在执行，请完成后重试。',true);return false}try{const job=await api('task/start',{action,confirmed:true,...extra});trackTask({...job,action});if(!['logs','backup-logs','proxy-logs'].includes(action))notice('操作正在执行，请稍候…',false,{kind:'loading'});else notice('');await poll();if(epoch!==authEpoch)return false;return true}catch(e){if(isSessionTransition(e))return;notice(e.message,true);return false}}
+async function startTask(action,extra={}){const epoch=authEpoch;if(['backup-start','backup-now'].includes(action)&&cfg?.backup_configured&&!(cfg.extras?.targets||[]).some(row=>row.enabled!==false)){notice('没有启用的备份目标，请先在“备份目标”页面启用一个。',true);return false}if(action==='proxy-logs'){if(!$('proxy-log-source').value){notice('请先在诊断与状态中选择反代日志来源。',true);return false}extra={...extra,proxy_id:$('proxy-log-source').value}}if(panelUpdating){notice('面板正在升级，请完成后再操作。',true);return false}if(taskRunning){notice('已有任务正在执行，请等待完成。',false,{kind:'info',detail:true,detailLabel:'查看任务'});return false}if(((action==='deploy'&&hasUnsaved('core'))||(action==='backup-start'&&hasUnsaved('backup')))){notice('有尚未保存的配置，请先保存，再应用。',true);return false}if(action==='backup-start'&&(!cfg?.configured||!cfg?.admin_set)){notice('请先保存主服务配置并设置管理口令。',true);return false}if(action==='backup-start'&&!environment?.containers?.some(row=>row.Names==='vaultwarden'&&row.State==='running')&&!await confirmDialog('将先启动密码库主服务，再启用备份服务。',{title:'启用备份服务',accept:'启动服务'}))return false;const confirmations={'upgrade-backup':'升级会重建备份容器，确认继续？',stop:'停止后客户端将暂时无法同步。确认停止密码库？',upgrade:'升级会下载最新镜像并重建容器，期间服务短暂不可用。建议先完成一次备份，确认继续？','backup-stop':'暂停后将不再按计划自动备份。确认暂停？','install-docker':'将通过 Docker 官方安装器安装 Docker 和 Compose，并修改服务器系统软件。确认安装？'};if(confirmations[action]&&!await confirmDialog(confirmations[action],{title:({'upgrade-backup':'升级备份服务',stop:'停止主服务',upgrade:'升级主服务','backup-stop':'暂停自动备份','install-docker':'安装 Docker'})[action],accept:({'upgrade-backup':'开始升级',stop:'确认停止',upgrade:'开始升级','backup-stop':'确认暂停','install-docker':'确认安装'})[action],danger:action==='stop'}))return false;if(epoch!==authEpoch||authPhase!=='authenticated')return false;if(taskRunning||panelUpdating){notice('已有操作正在执行，请完成后重试。',true);return false}try{const job=await api('task/start',{action,confirmed:true,...extra});trackTask({...job,action});if(!['logs','backup-logs','proxy-logs'].includes(action))notice('操作正在执行，请稍候…',false,{kind:'loading'});else notice('');await poll();if(epoch!==authEpoch)return false;return true}catch(e){if(isSessionTransition(e))return;notice(e.message,true);return false}}
 document.querySelectorAll('[data-task]').forEach(button=>button.onclick=()=>startTask(button.dataset.task));
 document.querySelectorAll('[data-uninstall]').forEach(button=>button.onclick=()=>{const form=$('remove-form');form.elements.scope.value=button.dataset.uninstall;form.elements.delete_data.value='keep';form.elements.remove_proxy.checked=false;form.dispatchEvent(new Event('change',{bubbles:true}));location.hash='cleanup';revealGroup(form)});
 $('log-service').onchange=()=>{$('view-service-logs').dataset.task=$('log-service').value};
@@ -523,9 +528,10 @@ async function prefillPresetForm(remote){
         if(match){values.account_id=match[1].toLowerCase();values.jurisdiction=(match[2]||'').replace(/^\./,'')}
         values.no_check_bucket=String(fields.no_check_bucket||'').toLowerCase()==='true';
     }else if(presetId==='s3')values.no_check_bucket=String(fields.no_check_bucket||'').toLowerCase()==='true';
+    $('storage-dialog-title').textContent='编辑存储 · '+remote.name;
     form.elements.name.value=remote.name;
     renderPresetFields(presetId,values);
-    form.elements.set_target.checked=!!target;
+    form.elements.set_target.checked=!!target&&target.enabled!==false;
     dirty.delete('preset-form');
     presetTouched=false;
     showStorageMethod('preset');
@@ -541,6 +547,8 @@ function showStorageMethod(method){
 }
 $('storage-method-preset').onclick=()=>showStorageMethod('preset');$('storage-method-wizard').onclick=()=>showStorageMethod('wizard');
 $('new-storage').onclick=async()=>{
+    if(wizardId&&!$('wizard-question-form').hidden){openWorkspaceDialog('storage-dialog');return}
+    $('storage-dialog-title').textContent='新增存储';
     if(presetTouched&&!await confirmDialog('还有未保存的存储配置，新增会清空这些输入。',{title:'新增存储',accept:'继续新增'}))return;
     initPresetForm();const form=$('preset-form');form.elements.name.value='';renderPresetFields(form.elements.preset.value);form.elements.set_target.checked=true;dirty.delete('preset-form');presetTouched=false;
     showStorageMethod('preset');revealGroup(form);requestAnimationFrame(()=>{form.scrollIntoView({behavior:'smooth',block:'center'});form.elements.name.focus()});
@@ -565,7 +573,7 @@ function refreshRemoteBrowser(extra){
 $('remote-browse-form').elements.name.addEventListener('change',()=>{clearRemoteFiles();syncRemoteDirectory(true)});
 $('remote-browse-form').elements.directory.addEventListener('input',clearRemoteFiles);
 function openRemoteBrowser(name){
-    const form=$('remote-browse-form');location.hash='archives';form.elements.name.value=name;clearRemoteFiles();syncRemoteDirectory(true);revealGroup(form);
+    const form=$('remote-browse-form');location.hash='remote';form.elements.name.value=name;clearRemoteFiles();syncRemoteDirectory(true);revealGroup(form);
     requestAnimationFrame(()=>form.scrollIntoView({behavior:'smooth',block:'center'}));
 }
 function renderStorageList(extra){
@@ -574,40 +582,78 @@ function renderStorageList(extra){
     for(const remote of extra.remotes){
         const row=document.createElement('article');row.className='storage-row';const copy=document.createElement('div');copy.className='storage-row-copy';
         const head=document.createElement('div');head.className='remote-row-head';const title=document.createElement('strong'),badge=document.createElement('span');title.textContent=remote.name;badge.className='badge';badge.textContent=remote.fields?.provider==='Cloudflare'?'Cloudflare R2':remote.type==='local'?'本机目录':remote.type;head.append(title,badge);
-        const path=document.createElement('p');path.className='muted';path.textContent=(extra.targets.some(item=>item.name===remote.name)?'备份目标 · ':'保存位置 · ')+(remoteDefaultDirectory(remote.name)||'尚未设置目录');copy.append(head,path);
+        const path=document.createElement('p');path.className='muted';path.textContent=(extra.targets.some(item=>item.name===remote.name&&item.enabled!==false)?'备份目标 · ':'保存位置 · ')+(remoteDefaultDirectory(remote.name)||'尚未设置目录');copy.append(head,path);
         const actions=document.createElement('div');actions.className='storage-row-actions';
         const browse=document.createElement('button');browse.type='button';browse.className='secondary';browse.textContent='浏览备份';browse.onclick=()=>openRemoteBrowser(remote.name);
         const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='重新配置 / 授权';edit.onclick=async()=>{if(await prefillPresetForm(remote))return;showStorageMethod('wizard');const form=$('wizard-start-form');form.elements.name.value=remote.name;if(!Array.from(form.elements.type.options).some(option=>option.value===remote.type))form.elements.type.add(new Option(remote.type,remote.type));form.elements.type.value=remote.type;revealGroup(form);requestAnimationFrame(()=>form.scrollIntoView({behavior:'smooth',block:'center'}))};
         const more=document.createElement('details');more.className='storage-more';const summary=document.createElement('summary');summary.textContent='更多';more.append(summary);
         for(const [action,label]of [['remote-check','验证连接'],['remote-about','容量与身份'],['remote-delete','删除配置']]){const button=document.createElement('button');button.type='button';button.className='ghost'+(action==='remote-delete'?' danger-text':'');button.textContent=label;button.onclick=async()=>{let confirmation='';if(action==='remote-delete'){confirmation=await promptDialog('删除 '+remote.name+' 的连接配置，存储中的备份文件会保留。',{title:'删除存储配置',accept:'删除配置',danger:true,inputLabel:'输入 DELETE 确认',expected:'DELETE',placeholder:'DELETE'})||'';if(confirmation!=='DELETE')return}more.open=false;startTask(action,{name:remote.name,directory:remoteDefaultDirectory(remote.name),confirmation})};more.append(button)}
-        const details=document.createElement('details'),caption=document.createElement('summary'),pre=document.createElement('pre');caption.textContent='查看脱敏配置';pre.textContent=JSON.stringify(remote.fields,null,2);details.append(caption,pre);more.append(details);
-        actions.append(browse,edit,more);row.append(copy,actions);box.append(row);
+        const view=document.createElement('button');view.type='button';view.className='secondary';view.textContent='查看配置';view.onclick=()=>{$('storage-config-content').textContent=JSON.stringify(remote.fields,null,2);$('storage-config-dialog-title').textContent=remote.name+' · 存储配置';openWorkspaceDialog('storage-config-dialog')};
+        actions.append(browse,edit,view,more);row.append(copy,actions);box.append(row);
     }
 }
 
-function renderExtras(config){const extra=config.extras;if(!extra)return;renderEnvironmentEditors(extra.environment);fill('advanced-form',{...extraDefaults,...Object.fromEntries(Object.entries(extra.advanced).filter(([,v])=>v!==''))});fill('push-form',extra.push);fill('notifications-form',{MAIL_SMTP_ENABLE:false,MAIL_WHEN_SUCCESS:false,MAIL_WHEN_FAILURE:true,MAIL_FORCE_THREAD:false,...extra.notifications,...extra.notification_smtp});renderStorageList(extra);if(!dirty.has('targets-form')){$('target-rows').replaceChildren();for(const target of extra.targets)addTarget(target);if(!extra.targets.length)addTarget()}refreshRemoteBrowser(extra);const restoreSelect=$('restore-form').elements.file,current=restoreSelect.value;restoreSelect.replaceChildren(new Option('选择一份备份',''));for(const file of config.files.filter(f=>/\.(zip|7z)$/i.test(f.name)))restoreSelect.add(new Option(file.name+' · '+formatSize(file.size),file.name));if(Array.from(restoreSelect.options).some(o=>o.value===current))restoreSelect.value=current;initPresetForm();}
-for(const [id,section]of [['advanced-form','advanced'],['push-form','push'],['notifications-form','notifications']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget,button=form.querySelector('button[type=submit]');button.disabled=true;try{const result=await api('config/'+section,formValues(id));dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(i=>i.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
-function addTarget(target={}){
-    const row=document.createElement('div');row.className='target-row';
-    const label=(title,help,control)=>{const field=document.createElement('label');field.className='field';const heading=document.createElement('span'),small=document.createElement('small');heading.textContent=title;small.textContent=help;field.append(heading,control,small);return field};
-    const select=document.createElement('select');select.required=true;select.setAttribute('aria-label','存储名称 RCLONE_REMOTE_NAME');select.add(new Option('请选择已配置的存储',''));
-    const remotes=cfg?.extras?.remotes||[];
-    for(const remote of remotes)select.add(new Option(remote.name+(remote.type==='local'?' · 本机目录':' · '+remote.type),remote.name));
-    if(target.name){if(!remotes.some(remote=>remote.name===target.name)){const missing=new Option(target.name+'（未找到存储配置）',target.name);missing.disabled=true;select.add(missing)}select.value=target.name}
-    const validate=()=>select.setCustomValidity(select.value&&!remotes.some(remote=>remote.name===select.value)?'未找到这个存储，请先恢复存储配置或重新选择。':'');validate();select.addEventListener('change',validate);
-    const directory=document.createElement('input');directory.required=true;directory.value=target.directory||'';directory.placeholder='填写备份保存目录';directory.setAttribute('aria-label','保存目录 RCLONE_REMOTE_DIR');
-    const remove=document.createElement('button');remove.type='button';remove.className='ghost danger-text';remove.textContent='移除';remove.onclick=()=>{row.remove();dirty.add('targets-form');renderPresentation()};
-    row.append(label('存储名称 · RCLONE_REMOTE_NAME','从已配置的 Rclone 存储中选择。',select),label('保存目录 · RCLONE_REMOTE_DIR','云盘例如 /VaultBackup；S3/R2 第一段为 Bucket；本机通常为 /bitwarden/backup/archive。',directory),remove);$('target-rows').append(row);
+function renderTargetList(extra){
+    const rows=extra.targets||[],box=$('backup-target-list');box.replaceChildren();const active=rows.filter(row=>row.enabled!==false).length,pending=cfg.application?.backup==='pending';
+    $('target-enabled-count').textContent=active+' 个启用 / '+rows.length+' 个目标';
+    const backupRunning=environment?.containers?.some(row=>row.Names==='vaultwarden-backup'&&row.State==='running');
+    $('target-service-hint').textContent=!cfg.backup_configured?'请先在备份设置中保存备份计划。':!active?'没有启用的目标，备份不会投递。':pending?'有已保存的备份配置尚未应用。目标开关会应用当前配置，也可在备份设置中手动应用。':backupRunning?'开关会自动应用当前已保存的备份配置；停用只停止向该位置投递。':'备份服务未运行。启用的目标会在备份服务启动后按计划投递。';
+    if(!rows.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='还没有备份目标。保存备份计划后，可添加本机目录或已连接的远程存储。';box.append(empty)}
+    for(const [index,target]of rows.entries()){
+        const row=document.createElement('div');row.className='storage-row target-list-row';row.dataset.targetId=target.id||'legacy-'+index;
+        const copy=document.createElement('div');copy.className='storage-row-copy';const heading=document.createElement('div');heading.className='remote-row-head';const title=document.createElement('strong'),badge=document.createElement('span');title.textContent=target.name;badge.className='badge'+(target.enabled!==false&&!pending?' success':'');badge.textContent=target.enabled===false?'已停用':pending?'启用 · 待应用':'已启用';heading.append(title,badge);const path=document.createElement('p');path.className='muted';const source=(extra.remotes||[]).find(item=>item.name===target.name);path.textContent=(source?.type==='local'?'本机目录':'远程存储')+' · '+target.directory;copy.append(heading,path);
+        const actions=document.createElement('div');actions.className='storage-row-actions';
+        const toggle=document.createElement('label');toggle.className='toggle target-flag';const text=document.createElement('span');text.textContent=target.enabled===false?'停用':'启用';const input=document.createElement('input');input.type='checkbox';input.setAttribute('role','switch');input.setAttribute('aria-label',target.name+' 启用状态');input.checked=target.enabled!==false;input.dataset.targetControl='';const visual=document.createElement('span');visual.className='switch';input.onchange=async()=>{input.disabled=true;if(!await startTask('backup-target-toggle',{id:target.id,enabled:input.checked}))renderTargetList(cfg.extras)};toggle.append(text,input,visual);
+        const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.dataset.targetControl='';edit.textContent='编辑';edit.onclick=()=>openTargetEditor(target);
+        const remove=document.createElement('button');remove.type='button';remove.className='ghost danger-text';remove.dataset.targetControl='';remove.textContent='移除';remove.onclick=async()=>{if(!await confirmDialog('移除 '+target.name+' 的这个备份目标？已有备份文件会保留。',{title:'移除备份目标',accept:'移除目标',danger:true}))return;startTask('backup-target-save',{targets:rows.filter(item=>item!==target)})};actions.append(toggle,edit,remove);row.append(copy,actions);box.append(row);
+    }
 }
-for(const link of document.querySelectorAll('[data-open-targets]'))link.onclick=event=>{event.preventDefault();location.hash='backup';revealGroup($('targets-form'));requestAnimationFrame(()=>$('targets-form').scrollIntoView({behavior:'smooth',block:'center'}))};
-$('add-target').onclick=()=>{addTarget();dirty.add('targets-form');renderPresentation()};$('targets-form').onsubmit=async event=>{event.preventDefault();const targets=Array.from($('target-rows').children).map(row=>({name:row.querySelector('select').value,directory:row.querySelector('input').value}));try{await api('config/targets',{targets});dirty.delete('targets-form');notice('备份目标已保存，请应用备份配置。');await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}};
-$('reload-remotes').onclick=loadConfig;$('load-providers').onclick=()=>startTask('remote-providers');
+function openTargetEditor(target=null){
+    if(!cfg?.backup_configured)return notice('请先在备份设置中保存备份计划。',true);
+    const form=$('target-editor-form'),select=form.elements.name;select.replaceChildren(new Option('请选择存储',''));
+    for(const remote of cfg.extras.remotes)select.add(new Option(remote.name+' · '+(remote.type==='local'?'本机目录':remote.type),remote.name));
+    if(target?.name&&!cfg.extras.remotes.some(remote=>remote.name===target.name)){const missing=new Option(target.name+'（连接未找到）',target.name);missing.disabled=true;select.add(missing)}
+    form.elements.target_id.value=target?.id||'';select.value=target?.name||'';form.elements.directory.value=target?.directory||'';form.elements.enabled.checked=target?.enabled!==false;
+    $('target-dialog-title').textContent=target?'编辑备份目标':'添加备份目标';dirty.delete('target-editor-form');openWorkspaceDialog('target-dialog');
+}
+$('new-backup-target').onclick=()=>openTargetEditor();
+$('target-editor-form').elements.name.onchange=()=>{const form=$('target-editor-form');form.elements.directory.value=remoteDefaultDirectory(form.elements.name.value)};
+$('target-editor-form').onsubmit=async event=>{
+    event.preventDefault();const form=event.currentTarget,data=formValues('target-editor-form'),targets=(cfg.extras.targets||[]).map(row=>({...row}));
+    data.id=data.target_id;delete data.target_id;
+    const index=targets.findIndex(row=>row.id===data.id);if(index>=0)targets[index]=data;else{delete data.id;targets.push(data)}
+    form.querySelector('button[type=submit]').disabled=true;
+    try{await startTask('backup-target-save',{targets})}finally{form.querySelector('button[type=submit]').disabled=taskRunning}
+};
+for(const link of document.querySelectorAll('[data-open-targets]'))link.onclick=event=>{event.preventDefault();location.hash='targets'};
+
+function renderExtras(config){const extra=config.extras;if(!extra)return;renderEnvironmentEditors(extra.environment);fill('advanced-form',{...extraDefaults,...Object.fromEntries(Object.entries(extra.advanced).filter(([,v])=>v!==''))});fill('push-form',extra.push);fill('notifications-form',{MAIL_SMTP_ENABLE:false,MAIL_WHEN_SUCCESS:false,MAIL_WHEN_FAILURE:true,MAIL_FORCE_THREAD:false,...extra.notifications,...extra.notification_smtp});renderStorageList(extra);renderTargetList(extra);refreshRemoteBrowser(extra);const restoreSelect=$('restore-form').elements.file,current=restoreSelect.value;restoreSelect.replaceChildren(new Option('选择一份备份',''));for(const file of config.files.filter(f=>/\.(zip|7z)$/i.test(f.name)))restoreSelect.add(new Option(file.name+' · '+formatSize(file.size),file.name));if(Array.from(restoreSelect.options).some(o=>o.value===current))restoreSelect.value=current;initPresetForm();}
+for(const [id,section]of [['advanced-form','advanced'],['push-form','push'],['notifications-form','notifications']]){$(id).onsubmit=async event=>{event.preventDefault();const epoch=authEpoch;const form=event.currentTarget,button=form.querySelector('button[type=submit]');button.disabled=true;try{const result=await api('config/'+section,formValues(id));dirty.delete(id);form.querySelectorAll('input[type=password]').forEach(i=>i.value='');notice(result.message);await loadConfig()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)button.disabled=false}}}
+if($('reload-remotes'))$('reload-remotes').onclick=loadConfig;$('load-providers').onclick=()=>{showStorageMethod('wizard');revealGroup($('wizard-start-form'));startTask('remote-providers')};
 $('wizard-start-form').onsubmit=async event=>{event.preventDefault();const values=formValues('wizard-start-form');if(cfg?.extras?.remotes.some(r=>r.name===values.name)&&!await confirmDialog('将重新配置 '+values.name+'，向导完成前不会修改原配置。',{title:'重新配置远程存储',accept:'开始配置'}))return;await startTask('remote-wizard',values)};
-$('wizard-question-form').onsubmit=async event=>{event.preventDefault();const value=$('wizard-answer').value;if(await startTask('remote-continue',{wizard_id:wizardId,answer:value}))$('wizard-answer').value=''};
+$('wizard-question-form').onsubmit=async event=>{event.preventDefault();if(browserOAuthWizard)return submitBrowserOAuth();const value=$('wizard-answer').value;if(await startTask('remote-continue',{wizard_id:wizardId,answer:value}))$('wizard-answer').value=''};
 if($('preset-form'))$('preset-form').onsubmit=async event=>{event.preventDefault();const values=formValues('preset-form');presetSubmitted=JSON.stringify(values);if(!await startTask('remote-preset-save',values))presetSubmitted=null};
 if($('preset-form')){const markPresetDraft=event=>{if(event.target.name!=='preset')presetTouched=true};$('preset-form').addEventListener('input',markPresetDraft);$('preset-form').addEventListener('change',markPresetDraft)}
 function renderHelp(box,help){const regex=/https?:\/\/[^\s<>"']+/g;let index=0;for(const match of help.matchAll(regex)){box.append(document.createTextNode(help.slice(index,match.index)));const link=document.createElement('a');link.href=match[0];link.target='_blank';link.rel='noopener noreferrer';link.textContent=match[0];box.append(link);index=match.index+match[0].length}box.append(document.createTextNode(help.slice(index)))}
-function renderResult(job){if(resultSeen===job.id)return;resultSeen=job.id;const result=job.result;if(result.providers){const select=$('wizard-start-form').elements.type,old=select.value;select.replaceChildren();for(const p of result.providers)select.add(new Option(p.description+' ('+p.name+')',p.name));select.value=old;revealCurrentGroup($('wizard-start-form'));notice('全部存储类型已加载。')}if(result.question){wizardId=result.wizard_id;const option=result.question,box=$('wizard-question');box.replaceChildren();const title=document.createElement('label');title.className='question-label';title.htmlFor='wizard-answer';title.textContent=({client_id:'客户端 ID（通常可留空）',client_secret:'客户端密钥',config_token:'授权令牌',config_is_local:'使用服务器上的浏览器授权（远程服务器固定为否）',host:'服务器地址',user:'登录账号',pass:'登录密码',port:'端口',vendor:'服务商类型',scope:'授权范围',key_file:'私钥文件路径'})[option.Name]||option.Name;const help=document.createElement('div');help.className='question-help';renderHelp(help,option.Help||'');let input;if(option.Exclusive&&option.Examples?.length){input=document.createElement('select');for(const item of option.Examples)input.add(new Option(item.Help+' · '+item.Value,item.Value))}else{input=document.createElement('input');input.type=option.IsPassword||/token|secret|pass/i.test(option.Name)?'password':'text';input.maxLength=60000;if(option.Examples?.length){const hints=document.createElement('p');hints.className='muted';hints.textContent='可选值：'+option.Examples.map(v=>v.Value+' ('+v.Help+')').join('、');box.append(hints)}}input.id='wizard-answer';input.required=!!option.Required;input.value=option.Default===null?'':String(option.Default??'');if(option.Name==='config_is_local'){input.value='false';input.disabled=true}box.append(title,help,input);if(result.error){const error=document.createElement('p');error.textContent=result.error;error.className='danger-text';box.append(error)}$('wizard-question-form').hidden=false;revealCurrentGroup($('wizard-question-form'));notice('请按向导填写下一项。')}if(result.done){$('wizard-question-form').hidden=true;notice('存储配置已保存，可验证连接并添加为备份目标。')}if(result.remote_files){
+let browserOAuthWizard='';
+function renderBrowserOAuth(result){
+    wizardId=result.wizard_id;browserOAuthWizard=wizardId;showStorageMethod('wizard');
+    const provider=result.oauth_available?.provider||result.browser_oauth?.provider||'云盘',box=$('wizard-question');box.replaceChildren();
+    const heading=document.createElement('h3');heading.textContent='连接 '+provider;box.append(heading);
+    const intro=document.createElement('p');intro.className='muted';intro.textContent='不用安装 Rclone，也不用运行命令。面板会替你生成授权链接并保存授权结果。';box.append(intro);
+    const steps=document.createElement('ol');steps.className='oauth-steps';
+    for(const text of ['打开服务商授权页面，登录并同意访问。','授权后可能显示“无法访问此网站”，这是因为返回地址指向你自己的电脑；请复制地址栏里的完整地址。','回到这里粘贴地址，面板自动完成验证和保存。']){const item=document.createElement('li');item.textContent=text;steps.append(item)}box.append(steps);
+    const actions=document.createElement('div');actions.className='button-row spaced';const generate=document.createElement('button');generate.type='button';generate.className=result.browser_oauth?'secondary':'primary';generate.textContent=result.browser_oauth?'重新生成链接':'生成授权链接';generate.onclick=()=>startTask('remote-oauth-start',{wizard_id:wizardId});actions.append(generate);
+    if(result.browser_oauth){const link=document.createElement('a');link.className='primary';link.textContent='打开 '+provider+' 授权 ↗';link.href=result.browser_oauth.url;link.target='_blank';link.rel='noopener noreferrer';actions.prepend(link)}box.append(actions);
+    if(result.browser_oauth){const label=document.createElement('label');label.className='field spaced';const title=document.createElement('span');title.textContent='粘贴授权后的完整返回地址';const input=document.createElement('input');input.id='oauth-callback';input.type='password';input.autocomplete='off';input.maxLength=20000;input.placeholder='http://127.0.0.1:53682/?state=…&code=…';label.append(title,input);box.append(label);const finish=document.createElement('button');finish.id='oauth-complete';finish.type='button';finish.className='primary spaced';finish.textContent='验证并完成授权';finish.onclick=()=>submitBrowserOAuth();input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submitBrowserOAuth()}};box.append(finish)}
+    const manual=document.createElement('details');manual.className='oauth-manual spaced';const summary=document.createElement('summary');summary.textContent='高级：已有 Rclone 授权结果，手动填写';const input=document.createElement('input');input.id='wizard-answer';input.type='password';input.maxLength=60000;input.placeholder='粘贴已有授权结果';input.autocomplete='off';const submit=document.createElement('button');submit.className='secondary spaced';submit.type='button';submit.textContent='使用已有授权结果';submit.onclick=async()=>{if(!input.value)return notice('请先填写授权结果。',true);if(await startTask('remote-continue',{wizard_id:wizardId,answer:input.value}))input.value=''};manual.append(summary,input,submit);box.append(manual);
+    $('wizard-next').hidden=true;$('wizard-question-form').hidden=false;revealCurrentGroup($('wizard-question-form'));notice('请在远程存储页面继续云盘授权。',false,{kind:'info'});
+}
+async function submitBrowserOAuth(){const input=$('oauth-callback');if(!input?.value)return notice('请先粘贴授权后地址栏中的完整返回地址。',true);if(await startTask('remote-oauth-complete',{wizard_id:browserOAuthWizard,callback_url:input.value}))input.value=''}
+const wizardChinese={client_id:'应用 ID（可留空，使用默认应用）',client_secret:'应用密钥（可留空）',root_folder_id:'保存到哪个文件夹（留空使用云盘根目录）',service_account_file:'服务账号文件（个人云盘留空）',config_team_drive:'是否使用共享云端硬盘',config_driveid:'选择要连接的云盘',drive_type:'云盘类型',config_refresh_token:'是否重新授权云盘',config_verification_code:'服务商返回的验证码',scope:'允许面板访问哪些文件'};
+const wizardHelpChinese={client_id:'普通使用可直接下一步；只有自己创建了 OAuth 应用时才需要填写。',client_secret:'与自定义应用 ID 配套；使用默认应用时留空即可。',scope:'备份需要读取和写入文件。请选择符合需要的权限，随后会在服务商页面再次确认。',root_folder_id:'不填则使用云盘根目录；备份保存的子目录在备份设置中填写。',service_account_file:'个人账号直接留空。服务账号是另一种授权方式，仅在你已准备对应文件时使用。',config_team_drive:'个人 Google Drive 请选择否；团队共享盘请选择是，再选择共享盘。'};
+
+function renderResult(job){if(resultSeen===job.id)return;resultSeen=job.id;const result=job.result;if(result.browser_oauth||(result.question&&result.oauth_available)){renderBrowserOAuth(result);return}if(result.providers){const select=$('wizard-start-form').elements.type,old=select.value;select.replaceChildren();for(const p of result.providers)select.add(new Option(p.description+' ('+p.name+')',p.name));select.value=old;revealCurrentGroup($('wizard-start-form'));notice('全部存储类型已加载。')}if(result.question){browserOAuthWizard='';$('wizard-next').hidden=false;wizardId=result.wizard_id;const option=result.question,box=$('wizard-question');box.replaceChildren();const title=document.createElement('label');title.className='question-label';title.htmlFor='wizard-answer';title.textContent=wizardChinese[option.Name]||({client_id:'客户端 ID（通常可留空）',client_secret:'客户端密钥',config_token:'授权令牌',config_is_local:'使用服务器上的浏览器授权（远程服务器固定为否）',host:'服务器地址',user:'登录账号',pass:'登录密码',port:'端口',vendor:'服务商类型',scope:'授权范围',key_file:'私钥文件路径'})[option.Name]||option.Name;const help=document.createElement('div');help.className='question-help';renderHelp(help,wizardHelpChinese[option.Name]||option.Help||'');let input;if(option.Exclusive&&option.Examples?.length){input=document.createElement('select');for(const item of option.Examples)input.add(new Option(({drive:'全部文件（备份和读取已有文件）','drive.file':'仅本应用创建的文件','drive.readonly':'仅读取（不能用于上传备份）','drive.appfolder':'应用专用文件夹','drive.metadata.readonly':'仅文件信息（不能用于备份）',true:'是',false:'否'})[String(item.Value)]||item.Help+' · '+item.Value,item.Value))}else{input=document.createElement('input');input.type=option.IsPassword||/token|secret|pass/i.test(option.Name)?'password':'text';input.maxLength=60000;if(option.Examples?.length){const hints=document.createElement('p');hints.className='muted';hints.textContent='可选值：'+option.Examples.map(v=>v.Value+' ('+v.Help+')').join('、');box.append(hints)}}input.id='wizard-answer';input.required=!!option.Required;input.value=option.Default===null?'':String(option.Default??'');if(option.Name==='config_is_local'){input.value='false';input.disabled=true}box.append(title,help,input);if(result.error){const error=document.createElement('p');error.textContent=result.error;error.className='danger-text';box.append(error)}$('wizard-question-form').hidden=false;revealCurrentGroup($('wizard-question-form'));notice('请按向导填写下一项。')}if(result.done){browserOAuthWizard='';$('wizard-question-form').hidden=true;notice('存储配置已保存，可验证连接并添加为备份目标。')}if(result.remote_files){
     const origin={...(result.remote_location||remoteBrowse)},form=$('remote-browse-form');
     if(origin.name!==form.elements.name.value||String(origin.directory||'').replace(/^\/+|\/+$/g,'')!==form.elements.directory.value.replace(/^\/+|\/+$/g,''))return;
     const box=$('remote-files');box.replaceChildren();$('remote-files-context').textContent=origin.name+' · '+origin.directory;
@@ -626,7 +672,7 @@ function removalDescription(){
 $('remove-form').onsubmit=async event=>{event.preventDefault();const values=formValues('remove-form');values.delete_data=values.delete_data==='delete';if(!await confirmDialog(removalDescription(),{title:'卸载服务',accept:values.delete_data?'卸载并删除数据':'确认卸载',danger:true}))return;await startTask('remove-services',{...values,confirmation:'DELETE'})};
 $('remove-form').onchange=()=>{$('remove-summary').textContent=removalDescription()};
 $('remove-summary').textContent=removalDescription();
-$('upload-form').onsubmit=event=>{event.preventDefault();const file=$('backup-upload').files[0];if(!file)return;const epoch=authEpoch;const xhr=new XMLHttpRequest();activeUploads.add(xhr);xhr.onloadend=()=>activeUploads.delete(xhr);xhr.open('POST','/api/backup/upload?name='+encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-CSRF-Token',csrf);const button=$('upload-form').querySelector('button');button.disabled=true;xhr.upload.onprogress=e=>{if(epoch!==authEpoch)return;$('upload-status').textContent=e.lengthComputable?'上传 '+Math.round(e.loaded/e.total*100)+'%':'上传中…'};xhr.onload=async()=>{if(epoch!==authEpoch)return;button.disabled=false;try{if(xhr.status===401){expireSession();return}const result=JSON.parse(xhr.responseText);if(xhr.status!==200)throw Error(result.error||'上传失败');$('upload-status').textContent='上传完成';await loadConfig();if(epoch!==authEpoch)return;$('restore-form').elements.file.value=result.file;$('restore-form').elements.confirmation.value='';if(!$('restore-form').closest('[data-view]').hidden)revealGroup($('restore-form'));notice('已上传并选中备份，请确认密码后恢复。')}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}};xhr.onerror=()=>{if(epoch!==authEpoch)return;button.disabled=false;notice('上传连接中断，请重新上传。',true)};xhr.send(file)};
+$('upload-form').onsubmit=event=>{event.preventDefault();const file=$('backup-upload').files[0];if(!file)return;const epoch=authEpoch;const xhr=new XMLHttpRequest();activeUploads.add(xhr);xhr.onloadend=()=>activeUploads.delete(xhr);xhr.open('POST','/api/backup/upload?name='+encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-CSRF-Token',csrf);const button=$('upload-form').querySelector('button');button.disabled=true;xhr.upload.onprogress=e=>{if(epoch!==authEpoch)return;$('upload-status').textContent=e.lengthComputable?'上传 '+Math.round(e.loaded/e.total*100)+'%':'上传中…'};xhr.onload=async()=>{if(epoch!==authEpoch)return;button.disabled=false;try{if(xhr.status===401){expireSession();return}const result=JSON.parse(xhr.responseText);if(xhr.status!==200)throw Error(result.error||'上传失败');$('upload-status').textContent='上传完成';await loadConfig();if(epoch!==authEpoch)return;$('restore-form').elements.file.value=result.file;$('restore-form').elements.confirmation.value='';$('import-backup-dialog').close();notice('备份已导入。可在文件列表中选择恢复。')}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}};xhr.onerror=()=>{if(epoch!==authEpoch)return;button.disabled=false;notice('上传连接中断，请重新上传。',true)};xhr.send(file)};
 const featureMap=[[1,'生成主服务配置','vault'],[2,'初始化备份服务','backup'],[3,'配置远程存储','remote'],[4,'启动 / 应用主服务','deploy'],[5,'停止主服务','stop'],[6,'启动 / 应用备份','backup-start'],[7,'停止备份服务','backup-stop'],[8,'升级服务镜像','upgrade'],[9,'加密管理口令','vault'],[10,'修改主服务配置','vault'],[11,'修改备份配置','backup'],[12,'立即备份','backup-now'],[13,'访问信息与状态','info'],[14,'服务日志','tasks'],[15,'备份诊断','backup-diagnose'],[16,'恢复备份数据','restore'],[17,'环境体检','doctor'],[18,'卸载与清理','cleanup']];
 for(const [id,label,target]of featureMap){const button=document.createElement('button');button.className='feature-link';const number=document.createElement('b');number.textContent=String(id).padStart(2,'0');button.append(number,document.createTextNode(label));button.onclick=()=>target in names?location.hash=target:startTask(target);$('feature-map').append(button)}
 setInterval(async()=>{if(!csrf||location.hash!=='#tasks'||!$('live-logs').checked||taskRunning||Date.now()-lastLive<5000)return;lastLive=Date.now();try{await api('task/start',{action:$('log-service').value,...($('log-service').value==='proxy-logs'?{proxy_id:$('proxy-log-source').value}:{})});await poll()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}},1000);
@@ -635,13 +681,14 @@ setInterval(async()=>{if(!csrf||location.hash!=='#tasks'||!$('live-logs').checke
 
 // Progressive disclosure: keep forms in the same document and preserve their values.
 let lastSubmittedForm=null;
-function revealCurrentGroup(element){if(!element?.closest('[data-view]')?.hidden)revealGroup(element)}
+function revealCurrentGroup(element){const modal=element?.closest('dialog.workspace-dialog');if(modal&&!modal.open)return;if(!element?.closest('[data-view]')?.hidden)revealGroup(element)}
 function revealGroup(element){
     if(!element)return;
+    const modal=element.closest('dialog.workspace-dialog');if(modal)openWorkspaceDialog(modal.id);
     const view=element.closest('[data-view]');
     if(view?.hidden)location.hash=view.dataset.view;
     let group=element.closest('details.config-group')||element.querySelector?.('details.config-group');
-    while(group){group.open=true;group=group.parentElement.closest('details.config-group')}
+    while(group){if(group.id==='preset-card')group.hidden=false;group.open=true;group=group.parentElement.closest('details.config-group')}
 }
 // The catalog distinguishes dedicated form fields from optional upstream settings.
 const environmentEditors=new Map();
@@ -702,7 +749,7 @@ for(const scope of ['core','backup']){
     form.querySelector('.env-select').addEventListener('change',()=>updateEnvironmentSelection(scope));
     form.querySelector('.env-add').onclick=()=>{
         const state=environmentEditors.get(scope),spec=state?.specs.get(form.querySelector('.env-select').value);if(!spec)return;
-        if(!spec.editable){const forms={'基本信息':'core-form','注册与权限':'permissions-form','运行与安全设置':'advanced-form','官方推送':'push-form','管理口令加密设置':'token-form','邮件服务':'mail-form','备份计划':'backup-form','备份邮件通知':'notifications-form','备份目标与保存目录':'targets-form'};location.hash=spec.page;const target=$(forms[spec.location]);if(target){revealGroup(target);target.scrollIntoView({behavior:'smooth',block:'center'})}return}
+        if(!spec.editable){const forms={'基本信息':'core-form','注册与权限':'permissions-form','运行与安全设置':'advanced-form','官方推送':'push-form','管理口令加密设置':'token-form','邮件服务':'mail-form','备份计划':'backup-form','备份邮件通知':'notifications-form','备份目标与保存目录':'backup-target-list'};location.hash=spec.page;const target=$(forms[spec.location]);if(target){revealGroup(target);target.scrollIntoView({behavior:'smooth',block:'center'})}return}
         addEnvironmentRow(scope,spec);updateEnvironmentPicker(scope);environmentChanged(scope);state.rows.get(spec.key).input.focus();
     };
     form.onsubmit=async event=>{
@@ -714,6 +761,35 @@ for(const scope of ['core','backup']){
     };
 }
 
+const workspaceNoticeHome=$('notice').parentElement;
+function closeWorkspaceDialogs(){for(const dialog of document.querySelectorAll('dialog.workspace-dialog[open]'))dialog.close()}
+function openWorkspaceDialog(id){
+    if(authPhase!=='authenticated')return;
+    const dialog=$(id);if(!dialog)return;
+    for(const other of document.querySelectorAll('dialog.workspace-dialog[open]'))if(other!==dialog)other.close();
+    const context=dialog.querySelector('[data-view]');if(context?.hidden){location.hash=context.dataset.view;route()}
+    const content=dialog.querySelector('.dialog-content-card');if(content){content.hidden=false;content.open=true}
+    dialog.append($('notice'));
+    if(!dialog.open)dialog.showModal();
+}
+function mountWorkspaceDialogs(){
+    for(const [id,source]of [['storage-dialog',$('preset-card')],['remote-files-dialog',$('remote-browser-card')],['import-backup-dialog',$('upload-form').closest('.config-group')],['restore-backup-dialog',$('restore-form').closest('.config-group')]]){
+        source.classList.add('dialog-content-card');source.open=true;$(id).querySelector('.workspace-dialog-body').append(source);
+    }
+    for(const dialog of document.querySelectorAll('dialog.workspace-dialog')){
+        dialog.addEventListener('close',()=>{if(dialog.id==='storage-dialog')$('preset-card').hidden=true;const active=document.querySelector('dialog.workspace-dialog[open]');(active||workspaceNoticeHome).append($('notice'))});
+        dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close()}});
+    }
+    for(const button of document.querySelectorAll('[data-close-workspace]'))button.onclick=()=>$(button.dataset.closeWorkspace).close();
+    $('open-import-backup').onclick=()=>openWorkspaceDialog('import-backup-dialog');
+}
+
+function groupIcon(title){
+    const box=document.createElement('span');box.className='number';box.setAttribute('aria-hidden','true');
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.7');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',/导入|上传/.test(title)?'M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5':/恢复/.test(title)?'M4 11a8 8 0 1 1 1 6M4 4v7h7':/邮件|SMTP/.test(title)?'M3 5h18v14H3zM3 6l9 7 9-7':/存储|远程|云/.test(title)?'M7 18H5a4 4 0 0 1-.7-7.9 7 7 0 0 1 13.4 0A4 4 0 0 1 19 18h-2M12 13v8m-3-3 3 3 3-3':/文件|备份目标/.test(title)?'M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h8':/计划/.test(title)?'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v6l4 2':'M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6');svg.append(path);box.append(svg);return box;
+}
 function setupGroups(){
     const defaults={vault:'基本信息',mail:'SMTP 连接',backup:'自动备份计划',remote:'已配置的存储',archives:'本机备份文件',settings:'通过自己的域名访问面板',cleanup:'卸载范围与数据'};
     for(const view of document.querySelectorAll('[data-view]')){
@@ -725,11 +801,11 @@ function setupGroups(){
             if(!title)continue;
             const group=document.createElement('details');group.className=card.className+' config-group';
             group.dataset.groupTitle=title;group.open=defaults[view.dataset.view]===title;
-            if(card.id)group.id=card.id;
+            if(card.id)group.id=card.id;if(card.hidden)group.hidden=true;
             const summary=document.createElement('summary');summary.className='group-summary';
-            if(heading){summary.append(heading)}else{
+            if(heading){const oldIcon=heading.querySelector('.number');if(oldIcon&&!/^\d+$/.test(oldIcon.textContent.trim()))oldIcon.replaceWith(groupIcon(title));else if(!oldIcon)heading.prepend(groupIcon(title));summary.append(heading)}else{
                 const label=document.createElement('span');label.className='group-label';
-                const h2=document.createElement('h2');h2.textContent=title;label.append(h2);summary.append(label);titleNode?.remove();
+                const h2=document.createElement('h2');h2.textContent=title;label.append(groupIcon(title),h2);summary.append(label);titleNode?.remove();
             }
             const meta=document.createElement('span');meta.className='group-meta';
             const status=document.createElement('span');status.className='group-status';
@@ -771,6 +847,8 @@ function updateGroupSummaries(){
     }
 }
 setupGroups();
+mountWorkspaceDialogs();
+$('preset-card').addEventListener('toggle',()=>{if(!$('preset-card').open){$('preset-card').hidden=true;$('storage-dialog').close()}});
 document.addEventListener('input',event=>{const group=event.target.closest('.config-group');if(group&&!event.target.matches('.env-search,.env-select')){group.dataset.changed='true';updateGroupSummaries()}});
 document.addEventListener('change',()=>updateGroupSummaries());
 document.addEventListener('submit',event=>{lastSubmittedForm=event.target;updateGroupSummaries()},true);
@@ -780,7 +858,7 @@ document.addEventListener('reset',event=>{const group=event.target.closest('.con
 
 // Render guidance from saved configuration, application records and observed containers.
 let environment=null, settingsSnapshot=null, presentationJob=null;
-const scopeForms={core:['core-form','permissions-form','mail-form','advanced-form','push-form','core-env-form'],backup:['backup-form','notifications-form','targets-form','backup-env-form']};
+const scopeForms={core:['core-form','permissions-form','mail-form','advanced-form','push-form','core-env-form'],backup:['backup-form','notifications-form','backup-env-form']};
 function hasUnsaved(scope){return scopeForms[scope].some(id=>dirty.has(id))}
 function viewElement(view,selector){return document.querySelector('[data-view="'+view+'"] '+selector)}
 function setupPresentation(){
@@ -877,10 +955,8 @@ function renderPresentation(){
     $('backup-prerequisite').hidden=!prerequisite;
     $('backup-prerequisite').querySelector('span').textContent=!cfg.configured?'请先保存主服务配置，再设置备份计划。':'主服务尚未设置管理口令，完成后才能启用备份。';
     $('backup-form').querySelector('button[type=submit]').disabled=taskRunning||!cfg.configured;
-    const targetRemotes=cfg.extras?.remotes||[];
-    $('targets-guidance').textContent=!cfg.backup_configured?'先保存上方备份计划，再选择这里的存储名称和保存目录。':!targetRemotes.length?'尚未找到 Rclone 存储，请先通过下方入口新增或授权；完成后即可选择。':!$('target-rows').children.length?'至少添加一个备份目标，再保存。':'这里设置 RCLONE_REMOTE_NAME 与 RCLONE_REMOTE_DIR，可随时修改；不会被备份计划覆盖。';
-    $('targets-guidance').hidden=!!(cfg.backup_configured&&targetRemotes.length&&$('target-rows').children.length);
-    $('targets-form').querySelector('button[type=submit]').disabled=taskRunning||panelUpdating||!cfg.backup_configured||!targetRemotes.length||!$('target-rows').children.length;
+    $('new-backup-target').disabled=taskRunning||panelUpdating||!cfg.backup_configured;
+    document.querySelectorAll('[data-target-control]').forEach(button=>button.disabled=taskRunning||panelUpdating);
     const presetForm=$('preset-form');if(presetForm){const presetSubmit=presetForm.querySelector('button[type=submit]');if(presetSubmit)presetSubmit.disabled=taskRunning||panelUpdating;const presetTip=presetForm.elements.set_target.closest('.toggle').querySelector('small');if(presetTip)presetTip.textContent=!cfg?.backup_configured?'备份计划尚未保存；保存配置后可在备份设置中添加目标。':'加入 RCLONE_REMOTE_NAME 目标；不会删除其他目标。'}
 
     $('backup-service-status').textContent=backupUnknown?'状态未知':backupActive?'运行中':backup?'已暂停':cfg.backup_configured?'待启用':'未配置';
@@ -904,6 +980,7 @@ function renderPresentation(){
         button.querySelector('strong').textContent=active?'应用密码库配置':core?'启动密码库':'部署密码库';
         button.querySelector('small').textContent=corePending?'有已保存的修改等待加载':active?'服务运行中，可按需重新应用':core?'使用现有配置重新启动':cfg.configured?'使用已保存的配置部署':'先完成密码库配置';
     }
+    if(cfg.backup_configured&&!(cfg.extras?.targets||[]).some(row=>row.enabled!==false)){$('backup-service-description').textContent='所有备份目标已停用，请先在“备份目标”页面启用一个。';for(const button of document.querySelectorAll('[data-task="backup-start"],[data-task="backup-now"]')){button.disabled=true;button.title='请先在备份目标页面启用一个目标'}}
     updateGroupSummaries();
     if(panelUpdating)document.querySelectorAll('[data-task]').forEach(button=>button.disabled=true);
     if(presentationJob?.state==='running')$('task-description').textContent=['deploy','upgrade','upgrade-backup','install-docker'].includes(presentationJob.action)?'正在准备并应用服务，镜像下载可能需要几分钟。':'任务正在服务器后台执行，完成后会自动刷新结果。';
@@ -999,7 +1076,7 @@ addEventListener('resize',positionVersionPopover);addEventListener('scroll',posi
 $('upgrade-panel').onclick=async()=>{
     if(!panelUpdateInfo?.available||!panelUpdateInfo.latest||checkingUpdates||panelUpdating)return;
     if(taskRunning||consoleRunning)return notice('请先完成当前任务或结束高级控制台。',true);
-    const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password]')).some(input=>!input.readOnly&&input.value);
+    const hasInput=dirty.size||Array.from(document.querySelectorAll('#workspace input[type=password],dialog.workspace-dialog input[type=password]')).some(input=>!input.readOnly&&input.value);
     const message=(hasInput?'页面还有未保存输入，重启后将丢失。\n':'')+'确认升级管理面板？升级会重启面板，完成后将自动重新连接；密码库与备份容器保持运行。';
     if(!await confirmDialog(message,{title:'更新管理面板',accept:'立即更新'}))return;
     if(panelUpdating||taskRunning||consoleRunning||authPhase!=='authenticated')return;

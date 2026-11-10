@@ -18,7 +18,7 @@ from storage_presets import PRESETS, config_lines, normalize, public_presets, ta
 EXTRA_TASKS = {'info': '访问信息与系统状态', 'doctor': '环境体检', 'backup-diagnose': '备份诊断',
     'proxy-logs': '查看代理日志', 'mail-test': '发送备份测试邮件', 'restore': '恢复备份',
     'remove-services': '卸载服务', 'remote-providers': '读取云盘类型', 'remote-wizard': '配置远程存储',
-    'remote-continue': '继续远程存储配置', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
+    'remote-continue': '继续远程存储配置','backup-target-save':'保存备份目标','backup-target-toggle':'切换备份目标','remote-oauth-start':'生成云盘授权链接','remote-oauth-complete':'完成云盘授权', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
     'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份',
     'remote-r2-save': '保存 Cloudflare R2 存储', 'remote-preset-save': '保存远程存储预设',
     'upgrade-backup': '升级备份服务', 'existing-npm': '配置现有 NPM 站点'}
@@ -50,15 +50,8 @@ class OperationsMixin:
         preset_targets = self.preset_targets()
         env, bk = read_vars(app / 'vaultwarden.env'), read_vars(backup / 'backup.env')
         remotes = parser_for(backup / 'vw-backup-config/rclone/rclone.conf')
-        targets = []
-        index = 0
-        while True:
-            suffix = '' if index == 0 else '_' + str(index)
-            name = bk.get('RCLONE_REMOTE_NAME' + suffix)
-            if not name:
-                break
-            targets.append({'name': name, 'directory': bk.get('RCLONE_REMOTE_DIR' + suffix, '/VaultBackup')})
-            index += 1
+        from backup_targets import read as read_targets
+        targets=read_targets(self)
         smtp = {}
         try:
             tokens = shlex.split(bk.get('MAIL_SMTP_VARIABLES', ''))
@@ -163,24 +156,8 @@ class OperationsMixin:
                 updates[key] = str(data[key]).lower()
             update_vars(bk_file,updates)
         elif section == 'targets':
-            if not bk_file.exists():
-                raise ValueError('请先保存备份计划。')
-            targets = data.get('targets')
-            if not isinstance(targets,list) or not 1<=len(targets)<=20:
-                raise ValueError('请选择 1～20 个备份目标。')
-            names = parser_for(backup/'vw-backup-config/rclone/rclone.conf').sections()
-            updates={}
-            for i,item in enumerate(targets):
-                if not isinstance(item,dict) or item.get('name') not in names:
-                    raise ValueError('请选择已配置的远程存储。')
-                directory=text(item.get('directory',''),'远程目录')
-                if not directory or '..' in Path(directory).parts:
-                    raise ValueError('远程目录不正确。')
-                suffix='' if i==0 else '_'+str(i)
-                updates['RCLONE_REMOTE_NAME'+suffix]=item['name']
-                updates['RCLONE_REMOTE_DIR'+suffix]=directory
-            self.remove_env_keys(bk_file,[k for k in read_vars(bk_file) if re.fullmatch(r'RCLONE_REMOTE_(NAME|DIR)(_[0-9]+)?',k)])
-            update_vars(bk_file,updates)
+            from backup_targets import save
+            save(self,data.get('targets'))
         else:
             raise ValueError('未知配置页面。')
 
@@ -193,6 +170,20 @@ class OperationsMixin:
     def prepare_extended(self, action, data):
         from manager import text, secret_text
         payload = dict(data)
+        if action in ('backup-target-save','backup-target-toggle'):
+            from backup_targets import read,normalize as normalize_targets
+            targets=data.get('targets')
+            if action=='backup-target-toggle':
+                if not isinstance(data.get('enabled'),bool):raise ValueError('目标开关不正确。')
+                targets=[dict(row) for row in read(self)];found=False
+                for row in targets:
+                    if row['id']==data.get('id'):row['enabled']=data['enabled'];found=True
+                if not found:raise ValueError('备份目标已变化，请刷新后重试。')
+            return {'targets':normalize_targets(self,targets)}
+        if action in ('remote-oauth-start','remote-oauth-complete'):
+            from browser_oauth import wizard
+            current=wizard(self,data.get('wizard_id'))
+            return {'wizard_id':current['id'],'callback_url':text(data.get('callback_url',''),'授权返回地址',20000)}
         if action=='existing-npm':
             target=data.get('target','')
             if not isinstance(target,str) or not re.fullmatch(r'[a-f0-9]{12,64}',target):raise ValueError('请选择检测到的 NPM。')
@@ -237,6 +228,7 @@ class OperationsMixin:
             if name.upper()=='DEFAULT':raise ValueError('远程名称不能使用 DEFAULT。')
             payload['name']=name
         if action=='remote-wizard':
+            if not isinstance(data.get('guided',False),bool):raise ValueError('推荐设置选项不正确。')
             kind=text(data.get('type',''),'云盘类型')
             if not re.fullmatch(r'[a-z][a-z0-9_]{0,40}',kind):
                 raise ValueError('请选择存储类型。')
@@ -359,6 +351,14 @@ class OperationsMixin:
     def run_extended(self,action,data):
         from manager import read_vars,write_private,update_vars
         app,backup=self.paths()
+        if action in ('backup-target-save','backup-target-toggle'):
+            from backup_targets import apply
+            apply(self,data['targets']);return
+        if action in ('remote-oauth-start','remote-oauth-complete'):
+            import browser_oauth
+            if action=='remote-oauth-start':browser_oauth.start(self,data['wizard_id'])
+            else:browser_oauth.complete(self,data['wizard_id'],data['callback_url'])
+            return
         if action=='existing-npm':
             from existing_npm import ExistingNPM
             ExistingNPM(self,data).configure();return
@@ -373,6 +373,7 @@ class OperationsMixin:
                 except (ValueError,OSError) as error:self.emit('检查未通过：'+str(error))
             if action=='backup-diagnose':
                 for item in self.extended_config()['targets']:
+                    if not item.get('enabled',True):continue
                     try:
                         raw=self.rclone(['lsf',item['name']+':'+item['directory'],'--max-depth','1'])
                         self.emit('远程 '+item['name']+' 可读取；文件项：'+str(len(raw.splitlines())))
@@ -437,6 +438,9 @@ class OperationsMixin:
             value=self.rc('config/providers',{},backup/'vw-backup-config')
             self.job['result']={'providers':[{'name':p['Name'],'description':p.get('Description',p['Name'])} for p in value['providers']]};return
         if action in ('remote-wizard','remote-continue'):
+            if action=='remote-continue':
+                from browser_oauth import cancel
+                cancel(self)
             self.remote_question(action,data);return
         parser=parser_for(remote_file)
         name=data['name']
@@ -620,15 +624,17 @@ class OperationsMixin:
         config=base/'rclone/rclone.conf'
         if action=='remote-wizard':
             if not (backup/'backup.env').exists():raise ValueError('请先保存备份计划。')
+            from browser_oauth import cancel
+            cancel(self)
             old=getattr(self,'remote_wizard',None)
             if old:shutil.rmtree(old['folder'],ignore_errors=True)
             folder=Path(tempfile.mkdtemp(prefix='remote-wizard-',dir=self.state))
             (folder/'rclone').mkdir()
             original=config.read_text() if config.exists() else ''
             write_private(folder/'rclone/rclone.conf',original)
-            self.remote_wizard={'id':secrets.token_hex(12),'folder':str(folder),'name':data['name'],'type':data['type'],'original':original,'created':time.time()}
+            self.remote_wizard={'id':secrets.token_hex(12),'folder':str(folder),'name':data['name'],'type':data['type'],'original':original,'created':time.time(),'guided':data.get('guided',False)}
             value=self.rc('config/create',{'name':data['name'],'type':data['type'],'parameters':{'config_is_local':'false'},
-                'opt':{'nonInteractive':True,'all':True,'obscure':True}},folder)
+                'opt':{'nonInteractive':True,'all':not self.remote_wizard['guided'],'obscure':True}},folder)
         else:
             wizard=getattr(self,'remote_wizard',None)
             if not wizard or wizard['id']!=data.get('wizard_id') or time.time()-wizard['created']>3600:
@@ -637,6 +643,13 @@ class OperationsMixin:
                 'opt':{'nonInteractive':True,'continue':True,'state':wizard['state'],
                 'result':data.get('answer',''),'obscure':True}},Path(wizard['folder']))
         wizard=self.remote_wizard
+        # The guided route skips only optional client overrides and local-browser questions.
+        for _ in range(16):
+            option=value.get('Option',value.get('option',{}));state=value.get('State',value.get('state',''))
+            key=option.get('Name','')
+            if not state or not wizard.get('guided') or wizard['type'] not in ('drive','onedrive','dropbox') or option.get('Required') or key not in ('client_id','client_secret','root_folder_id','service_account_file','config_is_local'):break
+            answer='false' if key=='config_is_local' else ''
+            value=self.rc('config/update',{'name':wizard['name'],'parameters':{'config_is_local':'false'},'opt':{'nonInteractive':True,'continue':True,'state':state,'result':answer,'obscure':True}},Path(wizard['folder']))
         state=value.get('State',value.get('state',''))
         wizard['state']=state
         if state:
@@ -644,7 +657,17 @@ class OperationsMixin:
             # Never echo secret defaults returned by Rclone.
             if option.get('IsPassword') or re.search(r'pass|token|secret|key',option.get('Name',''),re.I):
                 option['Default']='';option.pop('Value',None)
+            browser=None
+            wizard.pop('oauth_args',None)
+            if option.get('Name')=='config_token':
+                from browser_oauth import arguments,PROVIDERS
+                args=arguments(option.get('Help',''),wizard['type'])
+                if args:
+                    wizard['oauth_args']=args
+                    browser={'provider':PROVIDERS[wizard['type']][0]}
+                    option['Help']='点击生成授权链接，在服务商页面同意后，把返回地址粘贴回面板。无需安装 Rclone 或运行命令。'
             self.job['result']={'wizard_id':wizard['id'],'question':option,'error':value.get('Error','')}
+            if browser:self.job['result']['oauth_available']=browser
             self.emit('请在远程存储页面继续填写配置问题。')
         else:
             original=config.read_text() if config.exists() else ''

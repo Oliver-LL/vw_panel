@@ -641,6 +641,9 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             elif action.startswith('backup-'):
                 if not (backup / 'docker-compose.yml').exists():
                     raise ValueError('请先保存备份配置。')
+                if action in ('backup-start','backup-now'):
+                    from backup_targets import read as read_targets
+                    if not any(row['enabled'] for row in read_targets(self)):raise ValueError('没有启用的备份目标，请先在备份目标页面启用一个目标。')
                 if action == 'backup-start':
                     try:
                         running = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden']).strip() == 'true'
@@ -658,6 +661,9 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                         result = self._command(['docker', 'inspect', '--format', '{{.State.Running}}', 'vaultwarden-backup'])
                         if result.strip() != 'true':
                             raise ValueError('备份容器未保持运行，请查看备份日志。')
+                if action in ('backup-start','backup-stop'):
+                    from backup_targets import clear_pause
+                    clear_pause(self)
             else:
                 self._deploy_core(action)
             if action in ('deploy','upgrade'):self.note_applied('core')
