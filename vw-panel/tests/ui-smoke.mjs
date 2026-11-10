@@ -299,7 +299,7 @@ if(await run(`document.getElementById('backup-files').textContent.includes('先�
 if(await run(`document.getElementById('domain-form').closest('details').querySelector('.card-heading p').textContent.includes('先添加')`))throw Error('Configured domain still shows first setup instruction');
 
 await run(`location.hash='backup'`);await sleep(100);
-if(!await run(`document.getElementById('backup-service-status').textContent==='运行中'&&!document.querySelector('[data-view=archives] [data-task="backup-now"]').disabled`))throw Error('Backup service status did not follow running container');
+if(!await run(`document.getElementById('backup-service-status').textContent==='运行中'&&!document.querySelector('[data-view=targets] [data-task="backup-now"]').disabled`))throw Error('Backup service status did not follow running container');
 await shot('backup-service-running',1440,1100);await shot('backup-service-running-mobile',390,1000);
 if(await run(`document.documentElement.scrollWidth>innerWidth`))throw Error('Backup service overflows mobile');
 

@@ -1020,7 +1020,7 @@ function renderPresentation(){
     $('backup-service').querySelector('[data-task="upgrade-backup"]').disabled=taskRunning||backupUnknown||!backup;
 
     for(const button of document.querySelectorAll('[data-task="backup-stop"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'暂停计划任务，保留备份文件':'备份服务当前未运行'}
-    for(const button of document.querySelectorAll('[data-task="backup-now"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'执行一次备份':'请先启动备份服务';const caption=button.querySelector('small');if(caption)caption.textContent=backupActive?'立即生成一份加密备份':'启动备份服务后可手动执行'}
+    for(const button of document.querySelectorAll('[data-task="backup-now"]')){button.disabled=taskRunning||!backupActive;button.title=backupActive?'立即向所有已启用的备份目标执行一次备份':'请先启动备份服务';const caption=button.querySelector('small');if(caption)caption.textContent=backupActive?'立即生成一份加密备份':'启动备份服务后可手动执行'}
     for(const button of document.querySelectorAll('[data-task="stop"]'))button.disabled=taskRunning||!active;
 
     document.querySelectorAll('[data-uninstall]').forEach(button=>button.disabled=taskRunning||panelUpdating||(button.dataset.uninstall==='core'?!cfg.configured:!cfg.backup_configured));

@@ -48,7 +48,7 @@ await run(`Array.from(document.querySelectorAll('#remote-files button')).find(bu
 if(!saved.some(item=>item.data.action==='remote-file-delete'&&item.data.name==='CloudTwo'&&item.data.file==='remote-backup.zip'&&item.data.confirmation==='DELETE'))throw Error('Remote deletion lost selected origin');
 await run(`window.autoAcceptDialogs=true`);
 await run(`closeWorkspaceDialogs();location.hash='archives'`);await sleep(150);
-if(!await run(`document.querySelector('.archive-page-actions [data-task="backup-now"]')&&document.getElementById('open-import-backup').parentElement.classList.contains('archive-page-actions')&&!document.querySelector('.local-files-card [data-task="backup-now"]')`))throw Error('Backup action is not beside import in page header');
+if(!await run(`!document.querySelector('[data-view=archives] [data-task="backup-now"]')&&document.getElementById('open-import-backup').parentElement.classList.contains('page-title')`))throw Error('Local files page still offers a backup action');
 await shot('local-backup-header-actions',1440,1000);await shot('local-backup-header-actions-mobile',390,1000);
 await run(`trackTask({id:'backup-remote-result',action:'backup-now'});taskOutcome({id:'backup-remote-result',action:'backup-now',state:'success',result:{backup_result:{destinations:[{name:'CloudTwo',directory:'/actual-folder',local:false}],local_files:[]}}})`);
 if(!await run(`document.getElementById('notice-message').textContent.includes('CloudTwo')&&document.getElementById('notice-message').textContent.includes('本机未留存')&&document.querySelector('#notice .toast-detail').textContent==='浏览远程备份'`))throw Error('Manual backup result does not explain destination');
@@ -63,6 +63,8 @@ if(!await run(`document.getElementById('restore-form').elements.file.value==='ba
 await shot('backup-restore-modal',1440,1100);await shot('backup-restore-modal-mobile',390,1100);
 await run(`closeWorkspaceDialogs();location.hash='targets'`);await sleep(150);
 if(!await run(`document.querySelector('[data-page=targets]').classList.contains('active')&&document.querySelectorAll('#backup-target-list .storage-row').length===1`))throw Error('Dedicated target menu/list missing');
+if(!await run(`document.querySelector('[data-view=targets] .page-header-actions [data-task="backup-now"]')&&document.getElementById('new-backup-target').parentElement.classList.contains('page-header-actions')&&document.querySelector('[data-view=targets] .page-title .muted').textContent.includes('所有已启用')`))throw Error('Backup action or scope is missing from targets header');
+await shot('backup-target-header-actions',1440,1000);await shot('backup-target-header-actions-mobile',390,1000);
 if(!await run(`(()=>{const application=cfg.application,status=environment;try{cfg.application={backup:'pending'};environment={containers:[{Names:'vaultwarden-backup',State:'running'}]};renderTargetList(cfg.extras);return document.querySelector('#backup-target-list .badge').textContent==='已启用'&&!document.getElementById('target-service-hint').textContent.includes('尚未应用')}finally{cfg.application=application;environment=status;renderTargetList(cfg.extras)}})()`))throw Error('Service-wide pending configuration mislabeled an enabled target');
 await run(`document.querySelector('#backup-target-list input[type=checkbox]').click()`);await sleep(300);
 if(!saved.some(item=>item.data.action==='backup-target-toggle'&&item.data.enabled===false))throw Error('Target toggle not submitted');
