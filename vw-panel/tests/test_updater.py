@@ -23,6 +23,8 @@ class UpdateTests(unittest.TestCase):
         self.body=b'#!/bin/bash\n# trusted fixture only\n'
         self.latest={'version':'0.5.1','build_id':'b'*64,'installer_sha256':hashlib.sha256(self.body).hexdigest()}
         self.updates=Updates(self.state,self.current)
+        self.latest['commit']='d'*40
+        self.revision=patch('updater.revision',return_value='d'*40);self.revision.start();self.addCleanup(self.revision.stop)
     def tearDown(self):self.tmp.cleanup()
     def prepare(self):
         private_json(self.state/'update.json',dict(self.latest,state='upgrading',token='fixture',started=__import__('time').time()))
@@ -76,6 +78,28 @@ class UpdateTests(unittest.TestCase):
         with patch('updater.fetch',return_value=self.body),patch('updater.subprocess.run',side_effect=install):self.updates.apply('fixture')
         self.assertEqual(self.updates.progress()['state'],'success');self.assertEqual(credentials.read_text(),'saved hash')
         self.assertFalse((self.state/'update-fixture').exists())
+
+    def test_manifest_and_installer_are_bound_to_the_same_commit(self):
+        urls=[]
+        def download(url,maximum):
+            urls.append(url)
+            if url.endswith('release.json'):return json.dumps(self.latest).encode()
+            if url.endswith('install-vw-web.sh'):return self.body
+            raise AssertionError(url)
+        with patch('updater.fetch',side_effect=download):
+            checked=self.updates.check(force=True)
+            private_json(self.state/'update.json',dict(checked['latest'],state='upgrading',token='fixture'))
+            def install(*args,**kwargs):
+                (self.current/'version.json').write_text(json.dumps(self.latest));return SimpleNamespace(returncode=0)
+            with patch('updater.subprocess.run',side_effect=install):self.updates.apply('fixture')
+        self.assertEqual(self.updates.progress()['state'],'success')
+        self.assertEqual(len(urls),2);self.assertTrue(all('/'+('d'*40)+'/vw-panel/' in url for url in urls));self.assertTrue(all('/main/' not in url for url in urls))
+
+    def test_legacy_request_rejects_changed_release_before_install(self):
+        self.prepare();value=json.loads((self.state/'update.json').read_text());value.pop('commit');private_json(self.state/'update.json',value)
+        with patch('updater.fetch',return_value=json.dumps(dict(self.latest,build_id='e'*64)).encode()),patch('updater.subprocess.run') as install:
+            self.updates.apply('fixture')
+        install.assert_not_called();self.assertEqual(self.updates.progress()['state'],'failed')
 
     def test_install_failure_keeps_old_version(self):
         self.prepare()

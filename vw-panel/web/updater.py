@@ -16,8 +16,18 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = 'Oliver-LL/vw_web'
-BASE = 'https://raw.githubusercontent.com/' + REPOSITORY + '/main/vw-panel/'
 CHECK_INTERVAL = 6 * 3600
+
+def revision():
+    value=json.loads(fetch('https://api.github.com/repos/'+REPOSITORY+'/git/ref/heads/main?t='+str(time.time_ns()),32768))
+    reference=value.get('object') if isinstance(value,dict) else None
+    commit=reference.get('sha') if isinstance(reference,dict) else None
+    if not isinstance(commit,str) or not re.fullmatch(r'[a-f0-9]{40}',commit):raise ValueError('无法确认发布提交。')
+    return commit
+
+def release_base(commit):
+    if not isinstance(commit,str) or not re.fullmatch(r'[a-f0-9]{40}',commit):raise ValueError('发布提交格式不正确。')
+    return 'https://raw.githubusercontent.com/'+REPOSITORY+'/'+commit+'/vw-panel/'
 
 
 def private_json(path, data):
@@ -46,7 +56,10 @@ def manifest(data):
             raise ValueError('发布信息缺少校验值。')
     if not isinstance(data.get('version'), str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', data['version']):
         raise ValueError('发布版本格式不正确。')
-    return {key: data[key] for key in ('build_id', 'version', 'installer_sha256')}
+    result={key: data[key] for key in ('build_id', 'version', 'installer_sha256')}
+    if 'commit' in data:
+        release_base(data['commit']);result['commit']=data['commit']
+    return result
 
 
 class Updates:
@@ -78,7 +91,9 @@ class Updates:
             installed = self.installed()
             if force or self.cached is None or now >= self.next_check:
                 try:
-                    latest = manifest(json.loads(fetch(BASE + 'release.json?t=' + str(int(now)), 32768)))
+                    commit=revision()
+                    latest = manifest(json.loads(fetch(release_base(commit)+'release.json', 32768)))
+                    latest['commit']=commit
                     self.cached = {'latest': latest, 'checked_at': now, 'error': ''}
                     self.next_check = now + CHECK_INTERVAL
                 except (OSError, ValueError, TimeoutError):
@@ -137,7 +152,14 @@ class Updates:
             folder.mkdir(mode=0o700)
             if self.installed().get('build_id') == expected['build_id']:
                 value.update(state='success', finished=time.time());private_json(path, value);return
-            body = fetch(BASE + 'install-vw-web.sh?t=' + str(int(time.time())), 16 * 1024 * 1024)
+            commit=expected.get('commit')
+            if not commit:
+                # Safely resolve an older request without ever mixing moving branch URLs.
+                commit=revision()
+                pinned=manifest(json.loads(fetch(release_base(commit)+'release.json',32768)))
+                if any(pinned[key]!=expected[key] for key in ('build_id','version','installer_sha256')):
+                    raise ValueError('发布版本已变化，尚未执行安装。请重新检查版本后重试。')
+            body = fetch(release_base(commit)+'install-vw-web.sh', 16 * 1024 * 1024)
             if hashlib.sha256(body).hexdigest() != expected['installer_sha256']:
                 raise ValueError('下载校验失败，尚未执行安装。请重新检查版本后重试。')
             installer = folder / 'install.sh'
