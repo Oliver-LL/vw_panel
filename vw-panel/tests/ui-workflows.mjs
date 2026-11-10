@@ -41,6 +41,7 @@ if(!await run(`document.getElementById('restore-form').elements.file.value==='ba
 await shot('backup-restore-modal',1440,1100);await shot('backup-restore-modal-mobile',390,1100);
 await run(`closeWorkspaceDialogs();location.hash='targets'`);await sleep(150);
 if(!await run(`document.querySelector('[data-page=targets]').classList.contains('active')&&document.querySelectorAll('#backup-target-list .storage-row').length===1`))throw Error('Dedicated target menu/list missing');
+if(!await run(`(()=>{const application=cfg.application,status=environment;try{cfg.application={backup:'pending'};environment={containers:[{Names:'vaultwarden-backup',State:'running'}]};renderTargetList(cfg.extras);return document.querySelector('#backup-target-list .badge').textContent==='已启用'&&!document.getElementById('target-service-hint').textContent.includes('尚未应用')}finally{cfg.application=application;environment=status;renderTargetList(cfg.extras)}})()`))throw Error('Service-wide pending configuration mislabeled an enabled target');
 await run(`document.querySelector('#backup-target-list input[type=checkbox]').click()`);await sleep(300);
 if(!saved.some(item=>item.data.action==='backup-target-toggle'&&item.data.enabled===false))throw Error('Target toggle not submitted');
 if(!await run(`!document.querySelector('#backup-target-list input[type=checkbox]').checked`))throw Error('Disabled target did not remain visible');
