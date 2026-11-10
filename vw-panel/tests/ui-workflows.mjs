@@ -33,8 +33,12 @@ await run(`openRemoteBrowser('BitwardenBackup')`);await waitFor(`document.getEle
 if(!await run(`document.getElementById('remote-browse-form').elements.directory.value==='/bitwarden/backup/archive'`))throw Error('Browser modal lost path');
 await waitFor(`document.querySelector('#remote-files button')?.textContent==='下载到服务器'`);
 if(!await run(`!document.getElementById('remote-browse-form').elements.name.checkVisibility()`))throw Error('Browser asks to select already chosen storage');
+if(!await run(`document.getElementById('remote-browse-form').hidden&&document.getElementById('remote-refresh').checkVisibility()`))throw Error('Directory editing is not tucked away by default');
+await run(`document.getElementById('remote-change-directory').click()`);
+if(!await run(`!document.getElementById('remote-browse-form').hidden&&document.getElementById('remote-change-directory').getAttribute('aria-expanded')==='true'`))throw Error('Directory editor cannot expand');
+await run(`document.getElementById('remote-change-directory').click()`);
 if(!await run(`document.querySelector('#remote-files button')?.textContent==='下载到服务器'`))throw Error('Browser modal failed to show remote files');
-await run(`window.autoAcceptDialogs=false;openRemoteBrowser('CloudTwo')`);await waitFor(`document.querySelector('#remote-files [data-remote-file]')&&document.getElementById('remote-files-context').textContent.startsWith('CloudTwo')`);
+await run(`window.autoAcceptDialogs=false;openRemoteBrowser('CloudTwo')`);await waitFor(`document.querySelector('#remote-files [data-remote-file]')&&document.getElementById('remote-files-context').textContent==='/'&&document.getElementById('remote-files-dialog-title').textContent.startsWith('CloudTwo')`);
 await shot('remote-files-direct',1440,1000);await shot('remote-files-direct-mobile',390,1000);
 await run(`Array.from(document.querySelectorAll('#remote-files button')).find(button=>button.textContent==='删除').click()`);await waitFor(`document.getElementById('action-dialog').open`);
 if(!await run(`document.getElementById('action-dialog-message').textContent.includes('CloudTwo')&&document.getElementById('action-dialog-message').textContent.includes('remote-backup.zip')`))throw Error('Delete confirmation lost storage/file identity');
