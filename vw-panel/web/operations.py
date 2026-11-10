@@ -239,6 +239,12 @@ class OperationsMixin:
             payload['name']=name
         if action=='remote-wizard':
             if not isinstance(data.get('guided',False),bool):raise ValueError('推荐设置选项不正确。')
+            if not isinstance(data.get('set_target',False),bool):raise ValueError('备份目标选项不正确。')
+            directory=text(data.get('directory',''),'备份保存目录',512)
+            if '..' in Path(directory).parts or any(ord(c)<32 for c in directory):raise ValueError('备份保存目录不正确。')
+            if data.get('set_target') and not directory:raise ValueError('请填写备份保存目录。')
+            payload['directory']=directory
+            payload['set_target']=data.get('set_target',False)
             kind=text(data.get('type',''),'云盘类型')
             if not re.fullmatch(r'[a-z][a-z0-9_]{0,40}',kind):
                 raise ValueError('请选择存储类型。')
@@ -292,6 +298,28 @@ class OperationsMixin:
     def rc(self,path,data,folder):
         from remote_config import run
         return run(self,path,data,folder)
+
+    def storage_providers(self):
+        from types import SimpleNamespace
+        import threading
+        from remote_config import run
+        if not self.storage_provider_lock.acquire(timeout=5):raise ValueError('存储类型列表正在读取，请稍后重试。')
+        try:
+            cached=self.storage_provider_cache
+            if cached and time.time()-cached[0]<3600:return cached[1]
+            self.state.mkdir(parents=True,exist_ok=True)
+            # Metadata uses an empty temporary config and never changes the active task.
+            reader=SimpleNamespace(mutex=threading.RLock(),job={})
+            with tempfile.TemporaryDirectory(prefix='storage-types-',dir=self.state) as directory:
+                folder=Path(directory);(folder/'rclone').mkdir()
+                value=run(reader,'config/providers',{},folder)
+            rows=value.get('providers',[])
+            if not isinstance(rows,list):raise ValueError('存储类型列表无法识别，请重试。')
+            providers=[{'name':row['Name'],'description':row.get('Description') or row['Name']} for row in rows if isinstance(row,dict) and isinstance(row.get('Name'),str) and re.fullmatch(r'[a-z][a-z0-9_]{0,40}',row['Name'])]
+            if not providers:raise ValueError('暂时未能读取存储类型，请重试。')
+            self.storage_provider_cache=(time.time(),providers)
+            return providers
+        finally:self.storage_provider_lock.release()
 
     def preset_targets(self):
         try:
@@ -656,6 +684,7 @@ class OperationsMixin:
             original=config.read_text() if config.exists() else ''
             write_private(folder/'rclone/rclone.conf',original)
             self.remote_wizard={'id':secrets.token_hex(12),'folder':str(folder),'name':data['name'],'type':data['type'],'original':original,'created':time.time(),'guided':data.get('guided',False)}
+            self.remote_wizard.update(directory=data.get('directory',''),set_target=data.get('set_target',False))
             value=self.rc('config/create',{'name':data['name'],'type':data['type'],'parameters':{'config_is_local':'false'},
                 'opt':{'nonInteractive':True,'all':not self.remote_wizard['guided'],'obscure':True}},folder)
         else:
@@ -707,10 +736,30 @@ class OperationsMixin:
             self.emit('云盘配置流程已完成，正在保存存储配置。')
             original=config.read_text() if config.exists() else ''
             if original!=wizard['original']:raise ValueError('远程配置已发生变化，请重新开始，避免覆盖其他修改。')
+            candidate=Path(wizard['folder'])/'rclone/rclone.conf'
+            parsed=parser_for(candidate)
+            if wizard['name'] not in parsed:raise ValueError('未能取得完整存储配置，请重新开始授权。')
             if config.exists():write_private(config.with_name('rclone.conf.panel-backup'),original)
-            write_private(config,(Path(wizard['folder'])/'rclone/rclone.conf').read_text())
-            self.job['result']={'wizard_id':wizard['id'],'done':True}
-            self.emit('远程存储配置已保存。请验证连接，然后将其选为备份目标。')
+            updated=False;directory=wizard.get('directory','')
+            def restore_remote():
+                if original:write_private(config,original)
+                else:config.unlink(missing_ok=True)
+            try:
+                write_private(config,candidate.read_text())
+                if wizard.get('set_target'):
+                    targets=[dict(item) for item in self.extended_config()['targets']]
+                    existing=next((item for item in targets if item['name']==wizard['name'] and item['directory']==directory),None)
+                    if existing is not None:existing['enabled']=True
+                    else:targets.append({'name':wizard['name'],'directory':directory,'enabled':True})
+                    from backup_targets import apply
+                    apply(self,targets,restore_extra=restore_remote);updated=True
+            except Exception:
+                restore_remote();raise
+            if directory:
+                try:self.remember_preset_target(wizard['name'],directory)
+                except OSError:self.emit('存储已保存，但浏览目录未能记录；下次浏览时需重新填写目录。')
+            self.job['result']={'wizard_id':wizard['id'],'done':True,'storage_saved':{'name':wizard['name'],'label':'存储','directory':directory,'verified':False,'target_updated':updated,'target_applied':updated and self.application_state()['backup']=='applied'}}
+            self.emit('存储连接与备份目标已保存，目录：'+directory if updated else '存储连接已保存；已有备份目标保持不变。')
             shutil.rmtree(wizard['folder']);self.remote_wizard=None
 
     def restore_archive(self,data):

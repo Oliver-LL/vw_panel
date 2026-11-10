@@ -276,6 +276,12 @@ class HTTPRoutesTests(unittest.TestCase):
             self.assertNotIn(b'private-secret-fixture',request('GET','/api/config')[1])
             self.assertEqual(remote_file.read_text(),original)
 
+            with patch.object(app.manager,'storage_providers',return_value=[{'name':'drive','description':'Google Drive'}]) as providers:
+                self.assertEqual(request('GET','/api/storage/providers',authenticated=False)[0],401)
+                providers.assert_not_called()
+                self.assertEqual(request('GET','/api/storage/providers')[0],200)
+                providers.assert_called_once()
+
             with patch('remote_config.cancel',return_value={'ok':True}) as cancel:
                 self.assertEqual(request('POST','/api/storage/wizard/cancel',{'job_id':'fixture'},authenticated=False)[0],401)
                 self.assertEqual(request('POST','/api/storage/wizard/cancel',{'job_id':'fixture'},csrf=False)[0],403)

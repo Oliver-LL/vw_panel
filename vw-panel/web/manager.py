@@ -92,6 +92,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         self.memory = memory or Path.home() / '.vw_deploy.conf'
         self.job = {'id': '', 'state': 'idle', 'title': '暂无任务', 'output': '', 'error': ''}
         self.mutex = threading.RLock()
+        self.storage_provider_lock=threading.Lock()
+        self.storage_provider_cache=None
         self.logfile = None
 
     @contextlib.contextmanager

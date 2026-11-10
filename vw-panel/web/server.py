@@ -311,6 +311,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'csrf': auth[1]})
         if path == '/api/status':
             return self.reply(200, status())
+        if path == '/api/storage/providers':
+            try:return self.reply(200,{'providers':self.app.manager.storage_providers()})
+            except ValueError as error:return self.reply(503,{'error':str(error)})
         if path == '/api/proxy/environment':
             environment=detect_environment()
             environment['log_sources']=log_sources(environment,read_vars(self.app.manager.memory),(self.app.manager.paths()[0]/'docker-compose.yml').exists())

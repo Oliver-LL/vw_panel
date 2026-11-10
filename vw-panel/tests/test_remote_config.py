@@ -115,6 +115,67 @@ class RemoteConfigTests(unittest.TestCase):
         worker.alive=False
         self.assertEqual(self.manager.task()['state'],'failed')
 
+    def wizard_result(self,path,data,folder):
+        if path=='config/create':
+            file=folder/'rclone/rclone.conf';file.write_text(file.read_text()+'\n['+data['name']+']\ntype = drive\ntoken = wizard-fixture-token\n')
+            return {'State':'teamdrive_ok','Option':{'Name':'config_change_team_drive','Default':False,'Exclusive':True,'Examples':[{'Value':'true'},{'Value':'false'}]}}
+        return {'State':'','Option':None,'Error':''}
+
+    def test_wizard_saves_directory_and_adds_target_only_after_completion(self):
+        self.prepare();original=self.config.read_text()
+        with patch.object(self.manager,'rc',side_effect=self.wizard_result):
+            self.manager.start('remote-wizard',{'name':'NewGoogle','type':'drive','directory':'/VaultBackup','set_target':True})
+            job=self.wait_job();self.assertEqual(job['state'],'success');wizard_id=job['result']['wizard_id']
+            self.assertEqual(self.config.read_text(),original)
+            self.assertEqual(self.manager.remote_wizard['directory'],'/VaultBackup')
+            self.manager.start('remote-continue',{'wizard_id':wizard_id,'answer':'false'});job=self.wait_job();self.assertEqual(job['state'],'success')
+        targets=self.manager.config()['extras']['targets']
+        self.assertTrue(any(row['name']=='BitwardenBackup' for row in targets))
+        self.assertTrue(any(row['name']=='NewGoogle' and row['directory']=='/VaultBackup' and row['enabled'] for row in targets))
+        self.assertEqual(self.manager.preset_targets()['NewGoogle'],'/VaultBackup')
+        self.assertTrue(job['result']['storage_saved']['target_updated']);self.assertFalse(job['result']['storage_saved']['target_applied'])
+        self.assertNotIn('wizard-fixture-token',json.dumps(job))
+
+    def test_wizard_connection_only_keeps_targets_and_remembers_browse_directory(self):
+        self.prepare();before=self.manager.config()['extras']['targets']
+        with patch.object(self.manager,'rc',side_effect=self.wizard_result):
+            self.manager.start('remote-wizard',{'name':'OnlyConnection','type':'drive','directory':'/SavedFolder','set_target':False})
+            wizard_id=self.wait_job()['result']['wizard_id']
+            self.manager.start('remote-continue',{'wizard_id':wizard_id,'answer':'false'});job=self.wait_job();self.assertEqual(job['state'],'success')
+        self.assertEqual(self.manager.config()['extras']['targets'],before)
+        self.assertEqual(self.manager.preset_targets()['OnlyConnection'],'/SavedFolder')
+        self.assertFalse(job['result']['storage_saved']['target_updated'])
+
+    def test_wizard_target_reload_failure_restores_original_connection_and_targets(self):
+        self.prepare();original=self.config.read_text();before=self.manager.config()['extras']['targets']
+        with patch.object(self.manager,'rc',side_effect=self.wizard_result):
+            self.manager.start('remote-wizard',{'name':'FailedTarget','type':'drive','directory':'/Archive','set_target':True})
+            wizard_id=self.wait_job()['result']['wizard_id']
+            with patch('backup_targets.running',return_value=True),patch.object(self.manager,'_command',side_effect=[ValueError('reload failed'),'']):
+                self.manager.start('remote-continue',{'wizard_id':wizard_id,'answer':'false'});job=self.wait_job();self.assertEqual(job['state'],'failed')
+        self.assertEqual(self.config.read_text(),original);self.assertEqual(self.manager.config()['extras']['targets'],before)
+        self.assertFalse(job.get('result',{}).get('done'))
+
+    def test_wizard_target_validation_happens_before_authorization(self):
+        self.prepare()
+        for directory in ('','../outside','/folder/../outside'):
+            with patch.object(self.manager,'rc') as rc:
+                with self.assertRaises(ValueError):self.manager.start('remote-wizard',{'name':'Google','type':'drive','directory':directory,'set_target':True})
+                rc.assert_not_called()
+
+    def test_storage_type_metadata_is_cached_and_does_not_change_active_task(self):
+        self.prepare();self.manager.job={'id':'active-backup','state':'running','action':'backup-now'}
+        original=dict(self.manager.job)
+        def metadata(reader,path,data,folder):
+            self.assertIsNot(reader,self.manager);self.assertEqual(reader.job,{})
+            self.assertEqual(path,'config/providers');self.assertEqual(data,{})
+            self.assertFalse((folder/'rclone/rclone.conf').exists())
+            return {'providers':[{'Name':'drive','Description':'Google Drive'},{'Name':'box','Description':'Box'},{'Name':'../bad'}]}
+        with patch('remote_config.run',side_effect=metadata) as run:
+            first=self.manager.storage_providers();second=self.manager.storage_providers();run.assert_called_once()
+        self.assertEqual(first,second);self.assertEqual([row['name'] for row in first],['drive','box'])
+        self.assertEqual(self.manager.job,original)
+
     @unittest.skipUnless(os.environ.get('VWP_TEST_RCLONE'),'Optional real Rclone executable not supplied')
     def test_real_rclone_personal_drive_final_step(self):
         folder=self.prepare();candidate=folder/'rclone/rclone.conf'
