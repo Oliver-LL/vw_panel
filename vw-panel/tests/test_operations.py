@@ -22,7 +22,9 @@ import test_manager as fixtures
 
 
 class OperationsTests(unittest.TestCase):
-    setUp=fixtures.ManagerTests.setUp
+    def setUp(self):
+        fixtures.ManagerTests.setUp(self)
+        running=patch('backup_targets.running',return_value=False);running.start();self.addCleanup(running.stop)
     tearDown=fixtures.ManagerTests.tearDown
     configured=fixtures.ManagerTests.configured
     wait_job=fixtures.ManagerTests.wait_job
@@ -171,6 +173,23 @@ class OperationsTests(unittest.TestCase):
         self.assertNotIn('R2Secret!123',public)
         self.assertNotIn('obscured-r2-secret',public)
 
+    def test_preset_target_applies_running_service_and_rolls_back_connection_first(self):
+        self.backup();folder=self.manager.paths()[1];config=folder/'vw-backup-config/rclone/rclone.conf';env=folder/'backup.env'
+        data=dict(preset='r2',name='ImmediateR2',account_id='0'*32,access_key_id='ACCESSKEY12345678',secret_access_key='PrivateKeyForTest',bucket='vw-backup',path='VaultBackup',no_check_bucket=True,set_target=True)
+        original=config.read_text(),env.read_text()
+        with patch('backup_targets.running',return_value=True),patch.object(self.manager,'_command',return_value='') as command,patch.object(self.manager,'rclone_probe',return_value=''):
+            self.manager.start('remote-preset-save',data);job=self.wait_job();self.assertEqual(job['state'],'success');self.assertTrue(job['result']['storage_saved']['target_applied'])
+        self.assertTrue(any('--force-recreate' in call.args[0] for call in command.call_args_list))
+        self.assertEqual(self.manager.application_state()['backup'],'applied')
+        snapshot=config.read_text(),env.read_text();count=[0]
+        def failed_then_recover(args,*a,**kw):
+            count[0]+=1
+            if count[0]==1:raise ValueError('reload failed')
+            self.assertEqual(config.read_text(),snapshot[0]);self.assertEqual(env.read_text(),snapshot[1]);return ''
+        with patch('backup_targets.running',return_value=True),patch.object(self.manager,'_command',side_effect=failed_then_recover),patch.object(self.manager,'rclone_probe',return_value=''):
+            self.manager.start('remote-preset-save',dict(data,account_id='1'*32,secret_access_key='NewPrivateKey'));self.assertEqual(self.wait_job()['state'],'failed')
+        self.assertEqual((config.read_text(),env.read_text()),snapshot)
+
     def test_r2_remote_failure_keeps_config_and_reuses_existing_secret(self):
         self.backup()
         backup=self.manager.paths()[1]
@@ -262,7 +281,7 @@ class OperationsTests(unittest.TestCase):
         original=config.read_text();env_original=env.read_text()
         data=dict(preset='r2',name='R2Backup',account_id='0'*32,access_key_id='ACCESSKEY12345678',
             secret_access_key='Secret!123',bucket='vw-backup',path='',no_check_bucket=False,set_target=True)
-        with patch.object(self.manager,'_command',return_value='obscured\n'),patch.object(self.manager,'rclone_probe',return_value=''),patch.object(self.manager,'save_extended',side_effect=ValueError('target write failed')):
+        with patch.object(self.manager,'_command',return_value='obscured\n'),patch.object(self.manager,'rclone_probe',return_value=''),patch('backup_targets.save',side_effect=ValueError('target write failed')):
             self.manager.start('remote-preset-save',data)
             self.assertEqual(self.wait_job()['state'],'failed')
         self.assertEqual(config.read_text(),original)

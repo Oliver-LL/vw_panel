@@ -98,7 +98,7 @@ def running(name):
     if result.stdout.strip() not in ('true','false'):raise ValueError('服务状态无法识别，目标未修改。')
     return result.stdout.strip()=='true'
 
-def apply(manager,targets):
+def apply(manager,targets,restore_extra=None):
     from manager import write_private
     targets=normalize(manager,targets);env_file,meta_file=files(manager);original=env_file.read_text();meta_original=meta_file.read_text() if meta_file.exists() else None
     was_running=running('vaultwarden-backup');paused=False
@@ -122,8 +122,13 @@ def apply(manager,targets):
         write_private(env_file,original)
         if meta_original is None:meta_file.unlink(missing_ok=True)
         else:write_private(meta_file,meta_original)
+        restored=True
+        if restore_extra:
+            try:restore_extra()
+            except OSError:
+                restored=False;manager.emit('存储配置未能恢复，备份服务将暂停，请检查配置文件权限。')
         if was_running:
-            try:manager._command(manager.compose(env_file.parent,'up','-d','--force-recreate'))
+            try:manager._command(manager.compose(env_file.parent,*(['up','-d','--force-recreate'] if restored else ['stop'])))
             except Exception:manager.emit('旧目标配置已恢复，但备份服务未能恢复运行，请检查备份日志。')
         raise
 

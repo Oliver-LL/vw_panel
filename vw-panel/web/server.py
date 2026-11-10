@@ -435,6 +435,8 @@ class Handler(BaseHTTPRequestHandler):
                 with self.app.lock:
                     self.app.session_store.revoke(auth[0])
                 return self.reply(200, {'ok': True}, cookie=self.cookie('', 0))
+            if path == '/api/storage/config':
+                return self.reply(200,self.app.manager.remote_config(data.get('name')))
             if path == '/api/proxy/credentials':
                 return self.reply(200, self.app.manager.npm_credentials())
             if path == '/api/domain':

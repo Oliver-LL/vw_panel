@@ -167,6 +167,16 @@ class OperationsMixin:
         write_private(path.with_name(path.name+'.panel-backup'),original)
         write_private(path,'\n'.join(line for line in original.splitlines() if line.split('=',1)[0] not in keys)+'\n')
 
+    def remote_config(self,name):
+        if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',name) or name.upper()=='DEFAULT':raise ValueError('请选择有效的存储名称。')
+        _,backup=self.paths();file=backup/'vw-backup-config/rclone/rclone.conf'
+        if not file.exists():raise ValueError('尚未配置存储连接。')
+        if file.stat().st_size>4*1024*1024:raise ValueError('存储配置过大，无法在页面读取。')
+        try:parser=parser_for(file)
+        except configparser.Error:raise ValueError('存储配置格式无法识别，请检查 Rclone 配置。') from None
+        if name not in parser:raise ValueError('该存储已不存在，请刷新后重试。')
+        return {'name':name,'fields':dict(parser[name])}
+
     def prepare_extended(self, action, data):
         from manager import text, secret_text
         payload = dict(data)
@@ -453,18 +463,21 @@ class OperationsMixin:
             self.forget_preset_target(name)
             self.emit('远程配置已移除；远程文件未删除。');return
         if action=='remote-about':
+            available=False
             for command in ('about','config userinfo'):
                 try:
                     args=['config','userinfo',name+':'] if command=='config userinfo' else ['about',name+':','--json']
                     result=self.rclone(args)
-                    self.emit(command+'：'+result)
+                    self.emit(command+'：'+result);available=True
                 except ValueError:self.emit(command+'：服务商不支持该查询或授权已失效。')
+            self.job['result']={'storage_info':{'name':name,'available':available}}
             return
         directory=self.remote_directory(name,data.get('directory',''))
         target=name+':'+directory.rstrip('/')
         if action=='remote-check':
             if parser[name].get('type','')=='s3':target=name+':'+directory.split('/',1)[0]
             self.rclone_probe(['lsf',target,'--max-depth','1'],remote_file,label='存储')
+            self.job['result']={'remote_validation':{'name':name,'directory':directory,'readable':True,'write_checked':False}}
             self.emit('存储可读取；本次验证未写入文件。');return
         if action=='remote-list':
             raw=self.rclone_probe(['lsjson',target,'--files-only','--max-depth','1'],remote_file,label='读取备份')
@@ -594,7 +607,11 @@ class OperationsMixin:
                 index=next((i for i,item in enumerate(targets) if item['name']==name),None)
                 if index is None:targets.append(entry)
                 else:targets[index]=entry
-                self.save_extended('targets',{'targets':targets});updated=True
+                from backup_targets import apply
+                def restore_remote():
+                    if original:write_private(config,original)
+                    else:config.unlink(missing_ok=True)
+                apply(self,targets,restore_extra=restore_remote);updated=True
         except Exception:
             try:
                 if original:write_private(config,original)
@@ -610,8 +627,10 @@ class OperationsMixin:
         verification=('，并已通过 rclone 读取验证。' if preset_id in ('r2','s3') else '，并已通过 rclone 目录验证。') if commands else '。'
         self.emit(label+' 存储已保存'+verification)
         if preset_id=='local':self.emit('本机目录由备份容器挂载，保存时未做远程验证。')
+        self.job['result']={'storage_saved':{'name':name,'label':label,'verified':bool(commands),'target_updated':updated,'target_applied':updated and self.application_state()['backup']=='applied'}}
         if updated:
-            self.emit('已更新备份目标 %s:%s；请应用备份配置使目标生效。'%(name,directory))
+            if self.application_state()['backup']=='applied':self.emit('备份目标已更新并应用：%s:%s。'%(name,directory))
+            else:self.emit('备份目标已保存：%s:%s；启动备份服务后按计划投递。'%(name,directory))
         elif data.get('set_target'):
             self.emit('备份计划尚未保存，未写入备份目标；可稍后在备份设置中启用。')
         else:
