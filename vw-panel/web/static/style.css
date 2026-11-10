@@ -157,3 +157,5 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 
 /* The final toggle and the save footer share one section separator. */
 form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
+
+#remote-files .file-row{grid-template-columns:minmax(0,1fr) auto auto auto}#remote-files .file-row>strong{overflow-wrap:anywhere}.remote-file-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}@media(max-width:760px){#remote-files .file-row{grid-template-columns:minmax(0,1fr) auto}#remote-files .file-row>strong,.remote-file-actions{grid-column:1 / -1}}

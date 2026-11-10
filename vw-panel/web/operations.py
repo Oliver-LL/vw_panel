@@ -19,7 +19,7 @@ EXTRA_TASKS = {'info': '访问信息与系统状态', 'doctor': '环境体检', 
     'proxy-logs': '查看代理日志', 'mail-test': '发送备份测试邮件', 'restore': '恢复备份',
     'remove-services': '卸载服务', 'remote-providers': '读取云盘类型', 'remote-wizard': '配置远程存储',
     'remote-continue': '继续远程存储配置','backup-target-save':'保存备份目标','backup-target-toggle':'切换备份目标','remote-oauth-start':'生成云盘授权链接','remote-oauth-complete':'完成云盘授权', 'remote-check': '验证远程目标', 'remote-delete': '删除远程配置',
-    'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份',
+    'remote-about': '远程容量与身份', 'remote-list': '浏览远程备份', 'remote-download': '下载远程备份', 'remote-file-delete': '删除远程备份',
     'remote-r2-save': '保存 Cloudflare R2 存储', 'remote-preset-save': '保存远程存储预设',
     'upgrade-backup': '升级备份服务', 'existing-npm': '配置现有 NPM 站点'}
 BOOL_KEYS = ('ENABLE_WEBSOCKET', 'WEB_VAULT_ENABLED', 'EMERGENCY_ACCESS_ALLOWED', 'ENABLE_DB_WAL')
@@ -201,11 +201,11 @@ class OperationsMixin:
             if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):raise ValueError('请输入有效的 NPM 管理邮箱。')
             return {'target':target,'email':email,'password':secret_text(data.get('password',''),'NPM 管理密码')}
 
-        if action in ('restore','remove-services','remote-delete'):
-            expected = {'restore':'RESTORE','remove-services':'DELETE','remote-delete':'DELETE'}[action]
+        if action in ('restore','remove-services','remote-delete','remote-file-delete'):
+            expected = {'restore':'RESTORE','remove-services':'DELETE','remote-delete':'DELETE','remote-file-delete':'DELETE'}[action]
             if data.get('confirmation') != expected:
                 raise ValueError('请填写 '+expected+' 以确认操作。')
-        if action in ('restore','remote-download'):
+        if action in ('restore','remote-download','remote-file-delete'):
             payload['file']=safe_relative(data.get('file'))
             if not payload['file'].lower().endswith(('.zip','.7z')):
                 raise ValueError('请选择 zip 或 7z 备份。')
@@ -243,7 +243,7 @@ class OperationsMixin:
             if not re.fullmatch(r'[a-z][a-z0-9_]{0,40}',kind):
                 raise ValueError('请选择存储类型。')
             payload['type']=kind
-        if action in ('remote-check','remote-list','remote-download'):
+        if action in ('remote-check','remote-list','remote-download','remote-file-delete'):
             payload['directory']=self.remote_directory(payload['name'],data.get('directory',''))
         return payload
 
@@ -354,7 +354,7 @@ class OperationsMixin:
                 elif 'NoSuchBucket' in message:
                     summary='找不到 Bucket，请确认桶名、所属账号和 Endpoint。'
                 else:
-                    summary='连接验证失败，请查看失败详情。'+((' '+hint) if hint else '')
+                    summary='请求未完成，请查看失败详情。'+((' '+hint) if hint else '')
                 raise ValueError(label+' '+summary)
             return output.read().decode('utf-8','replace')
 
@@ -492,6 +492,14 @@ class OperationsMixin:
                     files.append({'name':path,'size':row['Size'],'modified':row.get('ModTime','')})
             except (ValueError,KeyError,TypeError,AttributeError):raise ValueError('存储返回的文件列表无法识别，请查看任务详情。')
             self.job['result']={'remote_files':files[:200],'remote_location':{'name':name,'directory':directory}};return
+        if action=='remote-file-delete':
+            if data.get('confirmation')!='DELETE':raise ValueError('请先确认删除该备份文件。')
+            filename=safe_relative(data.get('file'))
+            if not filename.lower().endswith(('.zip','.7z')):raise ValueError('只能删除 ZIP / 7z 备份文件。')
+            if parser[name].get('type','').lower()=='local':raise ValueError('此处仅删除远程备份，不处理本机目录。')
+            self.rclone_probe(['deletefile',target+'/'+filename],remote_file,label='删除远程备份')
+            self.job['result']={'remote_deleted':{'name':name,'directory':directory,'file':filename}}
+            self.emit('所选远程备份已删除，已下载到服务器的副本保留。');return
         if action=='remote-download':
             safe_relative(data['file'])
             folder=backup/'backups'/'downloaded';folder.mkdir(parents=True,exist_ok=True,mode=0o700)

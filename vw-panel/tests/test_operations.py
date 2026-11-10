@@ -33,6 +33,28 @@ class OperationsTests(unittest.TestCase):
         self.configured()
         self.manager.save('backup',dict(CRON='0 3 * * *',BACKUP_KEEP_DAYS=30,TIMEZONE='Asia/Shanghai',ZIP_PASSWORD='BackupPassword!123'))
 
+    def test_remote_file_delete_is_single_file_confirmed_and_scoped(self):
+        self.backup()
+        _,backup=self.manager.paths()
+        config=backup/'vw-backup-config/rclone/rclone.conf'
+        config.write_text(config.read_text()+'\n[MyCloud]\ntype = s3\nprovider = Cloudflare\n')
+        payload={'name':'MyCloud','directory':'/bucket/VaultBackup','file':'backup.zip','confirmation':'DELETE'}
+        for changes in ({'confirmation':''},{'file':'../backup.zip'},{'file':'folder'},{'file':'notes.txt'},{'name':'missing'}):
+            with patch.object(self.manager,'rclone_probe') as probe:
+                with self.assertRaises(ValueError):self.manager.start('remote-file-delete',dict(payload,**changes))
+                probe.assert_not_called()
+        with patch.object(self.manager,'rclone_probe',return_value='') as probe:
+            self.manager.start('remote-file-delete',payload)
+            self.assertEqual(self.wait_job()['state'],'success')
+            self.assertEqual(probe.call_args.args[0],['deletefile','MyCloud:bucket/VaultBackup/backup.zip'])
+            self.assertEqual(self.manager.job['result']['remote_deleted'],{'name':'MyCloud','directory':'bucket/VaultBackup','file':'backup.zip'})
+        with patch.object(self.manager,'rclone_probe',side_effect=ValueError('AccessDenied')):
+            self.manager.start('remote-file-delete',payload)
+            job=self.wait_job();self.assertEqual(job['state'],'failed');self.assertFalse(job.get('result',{}).get('remote_deleted'))
+        with patch.object(self.manager,'rclone_probe') as probe:
+            self.manager.start('remote-file-delete',dict(payload,name='BitwardenBackup'))
+            self.assertEqual(self.wait_job()['state'],'failed');probe.assert_not_called()
+
     def test_full_core_settings_push_clear_and_custom_cron(self):
         env=self.configured()
         self.manager.save('advanced',{'WEBSOCKET_ENABLED':True,'WEB_VAULT_ENABLED':False,'EMERGENCY_ACCESS_ALLOWED':True,
