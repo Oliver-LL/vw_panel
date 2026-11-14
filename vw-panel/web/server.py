@@ -33,6 +33,7 @@ from manager import Manager, read_vars
 from updater import Updates
 from session_store import SessionStore
 import panel_domain
+import panel_access
 from proxy_environment import detect_environment, log_sources
 
 SCRIPT = ROOT.parent / 'vw_web.sh'
@@ -541,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Vaultwarden 网页管理面板')
-    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain', 'public'])
+    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain', 'public', 'open-port', 'remove-port-rules'])
     parser.add_argument('--state-dir', type=Path, default=Path('/var/lib/vw-panel'))
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--host', default='0.0.0.0')
@@ -575,6 +576,26 @@ def main():
     if not config_path.exists() or not credentials.exists():
         raise SystemExit('请先运行安装器完成初始化。')
     app = Application(args.state_dir)
+    if args.command in ('open-port', 'remove-port-rules', 'public'):
+        try:
+            if args.command == 'remove-port-rules':
+                panel_access.sync(app.state_dir)
+                panel_domain.firewall()
+                config = dict(app.config)
+                config.pop('panel_route', None)
+                app.save_config(config)
+                return
+            if args.command == 'open-port' and app.config.get('panel_route', {}).get('protected'):
+                return
+            opened = panel_access.sync(app.state_dir, app.config['port'])
+            if opened:
+                print('已在本机防火墙放行 TCP %s。' % app.config['port'])
+            else:
+                print('未发现启用的 UFW 或 firewalld。请确认其他防火墙及云安全组允许 TCP %s。' % app.config['port'])
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            raise SystemExit(str(error))
+        if args.command == 'open-port':
+            return
     if args.command == 'public':
         panel_domain.firewall()
         config = dict(app.config)

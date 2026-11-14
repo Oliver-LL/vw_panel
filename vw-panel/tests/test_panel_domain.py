@@ -18,7 +18,7 @@ class PanelDomainTests(unittest.TestCase):
         self.proxy = {'id': 'a'*12, 'name': 'my-npm', 'kind': 'Nginx Proxy Manager',
                       'running': True, 'https_published': True, 'networks': ['npm_default']}
         self.origin = 'https://panel.example.com'
-        self.app = SimpleNamespace(config={'port': 8787, 'origins': []}, manager=self.manager)
+        self.app = SimpleNamespace(state_dir=self.manager.state, config={'port': 8787, 'origins': []}, manager=self.manager)
         self.app.save_config = lambda config: setattr(self.app, 'config', config)
         self.app.domain = lambda origin: self.app.save_config(dict(self.app.config, origins=[origin]))
 
@@ -64,7 +64,7 @@ class PanelDomainTests(unittest.TestCase):
     def test_restriction_requires_domain_login_and_rolls_back_failed_second_probe(self):
         self.app.config['panel_route'] = {'origin': self.origin, 'port': 8787,
                                          'gateway': '172.20.0.1', 'interface': 'br-test'}
-        with patch('panel_domain.firewall') as firewall, patch('panel_domain.verify_https') as verify:
+        with patch('panel_domain.firewall') as firewall, patch('panel_domain.verify_https') as verify, patch('panel_domain.panel_access.sync') as sync:
             with self.assertRaises(ValueError):
                 protect(self.app, 'http://127.0.0.1:8787')
             firewall.assert_not_called()
@@ -73,6 +73,7 @@ class PanelDomainTests(unittest.TestCase):
                 protect(self.app, self.origin)
             self.assertEqual(firewall.call_args_list, [call(8787, '172.20.0.1', 'br-test'), call()])
             self.assertFalse(self.app.config['panel_route'].get('protected'))
+            self.assertEqual(sync.call_args_list, [call(self.app.state_dir, 8787, '172.20.0.1', 'br-test'), call(self.app.state_dir, 8787)])
             verify.side_effect = None
             protect(self.app, self.origin)
         self.assertTrue(self.app.config['panel_route']['protected'])

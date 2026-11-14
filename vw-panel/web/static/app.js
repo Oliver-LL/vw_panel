@@ -91,7 +91,9 @@ function taskOutcome(job){
     if(action==='backup-target-toggle'||action==='backup-target-save'){const count=(cfg?.extras?.targets||[]).filter(row=>row.enabled!==false).length,running=environment?.containers?.some(row=>row.Names==='vaultwarden-backup'&&row.State==='running');notice(!count?'所有目标已停用，备份投递已暂停。':running?'备份目标已生效，当前启用 '+count+' 个目标。':'备份目标已保存。请在备份设置中启动备份服务。');return}
     if(action==='panel-domain'){
         loadSettings();
-        notice('面板 HTTPS 已验证。通过新域名登录后，即可限制公网直连。');
+        const access=job.result?.panel_route;
+        if(access?.protected)notice('HTTPS 已验证，公网直连已关闭。请打开新域名登录。');
+        else notice('HTTPS 已配置，公网直连仍可用。'+(access?.access_error||'可从新域名登录后重试限制。'),false,{kind:'info',detail:true,detailLabel:'查看任务'});
         return;
     }
     if(action==='remote-oauth-start'){notice('授权链接已生成，请打开服务商授权页面继续。',false,{kind:'info'});return}

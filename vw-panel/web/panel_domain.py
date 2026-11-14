@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from existing_npm import ExistingNPM
+import panel_access
 from proxy_environment import detect_environment, docker
 
 TABLE = 'vw_panel_access'
@@ -201,8 +202,14 @@ def configure(app, data):
         raise
     finally:
         app.domain_challenge = None
-    manager.emit('HTTPS 验证通过，可从新域名登录。')
-    return {'origin': origin, 'proxy': proxy['name']}
+    manager.emit('HTTPS 验证通过，正在切换为反代访问。')
+    try:
+        protect(app, origin)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        manager.emit('HTTPS 已配置，公网直连保留：' + str(error))
+        return {'origin': origin, 'proxy': proxy['name'], 'protected': False,
+                'access_error': str(error)}
+    return {'origin': origin, 'proxy': proxy['name'], 'protected': True}
 
 
 
@@ -217,15 +224,22 @@ def protect(app, request_origin):
     proof = secrets.token_hex(24)
     app.domain_challenge = (host, token, proof)
     applied = False
+    host_rules_changed = False
     try:
         verify_https(host, token, proof)
         firewall(route['port'], route['gateway'], route['interface'])
         applied = True
+        panel_access.sync(app.state_dir, route['port'], route['gateway'], route['interface'])
+        host_rules_changed = True
         verify_https(host, token, proof)
         app.save_config(dict(app.config, panel_route=dict(route, protected=True)))
     except Exception:
-        if applied:
-            firewall()
+        try:
+            if host_rules_changed:
+                panel_access.sync(app.state_dir, route['port'])
+        finally:
+            if applied:
+                firewall()
         raise
     finally:
         app.domain_challenge = None

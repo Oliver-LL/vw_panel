@@ -184,6 +184,10 @@ if [[ "$healthy" != true ]]; then
     fi
     exit 1
 fi
+if [[ -z "$previous" ]]; then
+    python3 "$release/web/server.py" open-port --state-dir /var/lib/vw-panel ||
+        echo "本机防火墙放行失败，请手动放行 TCP $panel_port。"
+fi
 install -m 755 "$release/panel-cli.sh" /usr/local/bin/vwp
 # Remove only the earlier command installed by this project; never touch `vw`.
 if [[ -f /usr/local/bin/vw-panel ]] && grep -Eq 'panel_root=/opt/vw-panel|/opt/vw-panel/current/web/server.py' /usr/local/bin/vw-panel; then

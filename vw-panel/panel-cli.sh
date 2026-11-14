@@ -106,8 +106,9 @@ path=p+'.'+secrets.token_hex(8)
 fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
 with os.fdopen(fd,'w') as f:json.dump(c,f)
 os.replace(path,p)
-print('面板端口：',port,'；请同步防火墙与反向代理。')
+print('面板端口：',port,'；请同步反向代理。')
 PY
+        python3 "$panel_root/current/web/server.py" open-port --state-dir "$panel_state" || echo '请手动放行新的面板端口。'
         systemctl restart vw-panel;;
     domain)
         need_root; [[ -n "${2:-}" ]] || { echo '用法：sudo vwp domain https://面板域名'; exit 1; }
@@ -128,7 +129,7 @@ PY
         exec 8>"$panel_state/install.lock"; flock -n 8 || { echo '安装器正在运行，请稍后操作。'; exit 1; }
         exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '网页任务正在运行，请结束后再卸载。'; exit 1; }
         if [[ -f "$panel_root/current/web/panel_domain.py" ]]; then
-            python3 "$panel_root/current/web/server.py" public --state-dir "$panel_state"
+            python3 "$panel_root/current/web/server.py" remove-port-rules --state-dir "$panel_state"
         fi
         systemctl disable --now vw-panel
         rm -f /etc/systemd/system/vw-panel.service
