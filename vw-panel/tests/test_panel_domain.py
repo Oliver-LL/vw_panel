@@ -61,6 +61,18 @@ class PanelDomainTests(unittest.TestCase):
         self.assertEqual(self.app.config['origins'], [])
         self.assertIsNone(self.app.domain_challenge)
 
+    def test_successful_route_keeps_direct_access_until_domain_login(self):
+        data = {'domain': 'panel.example.com', 'proxy': self.proxy['id'], 'email': '', 'password': ''}
+        with patch('panel_domain.detect_environment', return_value={'proxies': [self.proxy]}), patch(
+            'panel_domain.socket.getaddrinfo'
+        ), patch('panel_domain.network_endpoint', return_value=('172.20.0.2', '172.20.0.1', 'br-test')), patch(
+            'panel_domain.PanelNPM'
+        ), patch('panel_domain.verify_https'), patch('panel_domain.firewall') as firewall:
+            result = configure(self.app, data)
+        firewall.assert_not_called()
+        self.assertEqual(result['origin'], self.origin)
+        self.assertFalse(self.app.config['panel_route']['protected'])
+
     def test_restriction_requires_domain_login_and_rolls_back_failed_second_probe(self):
         self.app.config['panel_route'] = {'origin': self.origin, 'port': 8787,
                                          'gateway': '172.20.0.1', 'interface': 'br-test'}

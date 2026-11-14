@@ -202,14 +202,8 @@ def configure(app, data):
         raise
     finally:
         app.domain_challenge = None
-    manager.emit('HTTPS 验证通过，正在切换为反代访问。')
-    try:
-        protect(app, origin)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        manager.emit('HTTPS 已配置，公网直连保留：' + str(error))
-        return {'origin': origin, 'proxy': proxy['name'], 'protected': False,
-                'access_error': str(error)}
-    return {'origin': origin, 'proxy': proxy['name'], 'protected': True}
+    manager.emit('HTTPS 验证通过。通过新域名登录后，将自动关闭公网直连。')
+    return {'origin': origin, 'proxy': proxy['name'], 'protected': False}
 
 
 

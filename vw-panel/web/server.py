@@ -535,8 +535,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(404, {'error': '接口不存在。'})
         except ValueError as error:
             return self.reply(409, {'error': str(error)})
-        except OSError:
-            return self.reply(500, {'error': '服务器操作失败，请检查面板服务日志。'})
+        except (OSError, subprocess.SubprocessError):
+            return self.reply(500, {'error': '服务器操作失败或超时，请检查面板服务日志。'})
         self.reply(200, {'ok': True})
 
 

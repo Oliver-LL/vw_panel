@@ -34,7 +34,7 @@ def build(edition, installer_name, manifest_name):
     for name in ('installer-header.sh', 'build.py'):
         source.update(name.encode() + b'\0' + (ROOT / name).read_bytes() + b'\0')
 
-    version = {'version': '0.7.41', 'build_id': source.hexdigest(), 'edition': edition}
+    version = {'version': '0.7.42', 'build_id': source.hexdigest(), 'edition': edition}
     files['version.json'] = (json.dumps(version, sort_keys=True) + '\n').encode()
     if edition == 'full':
         (ROOT / 'version.json').write_bytes(files['version.json'])

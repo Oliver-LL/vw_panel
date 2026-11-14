@@ -79,7 +79,7 @@ function notice(message,error=false,options={}){
     const text=document.createElement('span');text.id='notice-message';text.textContent=message;box.append(icon,text);
     if(options.detail){const detail=document.createElement('button');detail.type='button';detail.className='toast-detail';detail.textContent=options.detailLabel||'查看失败详情';detail.onclick=event=>{event.stopPropagation();if(options.onDetail)options.onDetail();else{closeWorkspaceDialogs();location.hash='tasks';$('task-details').open=true}};box.append(detail)}
     const close=document.createElement('button');close.type='button';close.className='toast-close';close.setAttribute('aria-label','关闭提示');close.textContent='×';close.onclick=()=>notice('');box.append(close);
-    if(kind==='success'||kind==='info')noticeTimer=setTimeout(()=>notice(''),5000);
+    if(!options.persistent&&(kind==='success'||kind==='info'))noticeTimer=setTimeout(()=>notice(''),5000);
 }
 function trackTask(job){if(job?.id)trackedTask={id:job.id,action:job.action,context:job.context||{}}}
 function taskOutcome(job){
@@ -92,8 +92,10 @@ function taskOutcome(job){
     if(action==='panel-domain'){
         loadSettings();
         const access=job.result?.panel_route;
-        if(access?.protected)notice('HTTPS 已验证，公网直连已关闭。请打开新域名登录。');
-        else notice('HTTPS 已配置，公网直连仍可用。'+(access?.access_error||'可从新域名登录后重试限制。'),false,{kind:'info',detail:true,detailLabel:'查看任务'});
+        if(access?.origin)notice('HTTPS 已配置。通过新域名登录后，会自动关闭公网直连。',false,{
+            kind:'success',persistent:true,detail:true,detailLabel:'打开新域名',
+            onDetail:()=>location.assign(access.origin+'/#proxy')
+        });
         return;
     }
     if(action==='remote-oauth-start'){notice('授权链接已生成，请打开服务商授权页面继续。',false,{kind:'info'});return}
@@ -155,7 +157,7 @@ async function api(path,data,retried=false){
     if(epoch!==authEpoch)throw sessionChanged();
     let value=null;
     if(response.status!==401||path==='login'){
-        try{value=await response.json()}catch(error){if(epoch!==authEpoch)throw sessionChanged();throw Error('服务器没有返回有效结果，请检查连接。')}
+        try{value=await response.json()}catch(error){if(epoch!==authEpoch)throw sessionChanged();throw Error(response.status>=500?'服务器或反代返回 HTTP '+response.status+'，请检查面板服务和反代连接。':'服务器没有返回有效结果（HTTP '+response.status+'）。')}
     }
     if(epoch!==authEpoch)throw sessionChanged();
     if(path!=='login'&&(response.status===401||isAuthMessage(value?.error))){
@@ -187,6 +189,9 @@ async function enter(session,epoch=authEpoch){
     await Promise.all([loadConfig(),refreshStatus(),loadSettings(),poll()]);
     if(epoch!==authEpoch||!csrf)return;
     if(!timer)timer=setInterval(poll,1500);checkPanelUpdates(false);
+    const panelRoute=settingsSnapshot?.panel_route;
+    if(panelRoute?.origin===location.origin&&!panelRoute.protected)await protectPanelPort();
+
 }
 async function restoreSession(){
     const epoch=invalidateAuth('checking');$('login').hidden=true;$('workspace').hidden=true;$('auth-loading').hidden=false;
@@ -508,7 +513,7 @@ function renderPanelDomain(){
     }
     const canProtect=route?.origin===location.origin&&!route.protected;
     $('protect-panel-port').hidden=!canProtect;
-    if(route?.origin&&!route.protected&&!canProtect)$('domains').textContent+='。请通过此域名登录后限制公网直连。';
+    if(route?.origin&&!route.protected&&!canProtect)$('domains').textContent+='。从此域名登录后将自动限制公网直连。';
     const proxy=panelProxyOptions.find(item=>item.id===$('panel-proxy').value);
     if(!panelProxyOptions.length&&panelProxyMethod==='auto')panelProxyMethod='manual';
     const method=panelProxyMethod||(!panelProxyOptions.length&&panelProxyChecked?'manual':'');
@@ -537,7 +542,7 @@ function renderPanelDomain(){
     submit.textContent=manual?'保存域名':'配置域名与 HTTPS';
     submit.disabled=panelDomainSubmitting||!method||(automatic&&!proxy)||taskRunning||panelUpdating||panelProxyScanning||!!route?.protected;
     $('detect-panel-proxy').disabled=panelProxyScanning||taskRunning||panelUpdating;
-    $('protect-panel-port').disabled=taskRunning||panelUpdating;
+    $('protect-panel-port').disabled=panelPortProtecting||taskRunning||panelUpdating;
 }
 async function loadSettings(){
     try{settingsSnapshot=await api('settings');renderPanelDomain();renderPresentation();if(location.hash==='#proxy'&&!panelProxyChecked)detectPanelProxy()}
@@ -631,16 +636,22 @@ $('domain-form').onsubmit=async event=>{
     }catch(error){if(!isSessionTransition(error))notice(error.message,true)}
     finally{panelDomainSubmitting=false;renderPanelDomain()}
 };
-$('protect-panel-port').onclick=async()=>{
-    if(!await confirmDialog('启用后，请使用当前 HTTPS 域名访问面板。服务器终端可恢复 IP 直连。',{title:'限制公网直连',accept:'确认限制'}))return;
+let panelPortProtecting=false;
+async function protectPanelPort(){
+    if(panelPortProtecting)return;
+    panelPortProtecting=true;
     $('protect-panel-port').disabled=true;
     notice('正在限制直连并验证 HTTPS…',false,{kind:'loading'});
     try{
         await api('domain/protect',{});
         await loadSettings();
         notice('公网直连已限制，HTTPS 域名仍可访问。');
-    }catch(error){if(!isSessionTransition(error))notice(error.message,true)}
-    finally{renderPanelDomain()}
+    }catch(error){
+        if(!isSessionTransition(error))notice('未能限制公网直连：'+error.message,true);
+    }finally{panelPortProtecting=false;renderPanelDomain()}
+}
+$('protect-panel-port').onclick=async()=>{
+    if(await confirmDialog('启用后，请使用当前 HTTPS 域名访问面板。服务器终端可恢复 IP 直连。',{title:'限制公网直连',accept:'确认限制'}))await protectPanelPort();
 };
 function plain(s){return s.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g,'').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/\r\n/g,'\n').split('\n').map(line=>line.split('\r').pop().replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'')).join('\n')}
 async function pollConsole(){const state=await api('terminal?cursor='+cursor+'&generation='+generation);if(state.reset)raw='';raw=(raw+state.output).slice(-524288);cursor=state.cursor;generation=state.generation;consoleRunning=state.running;$('output').textContent=plain(raw)||'高级控制台尚未启动';$('console-status').textContent=consoleRunning?'运行中':'未运行';$('terminal-input').disabled=!consoleRunning;$('send').disabled=!consoleRunning;$('terminal-input').type=(!state.echo||hiddenInput)?'password':'text';if($('follow').checked)$('output').scrollTop=$('output').scrollHeight}
