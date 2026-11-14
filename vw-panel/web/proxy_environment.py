@@ -209,7 +209,8 @@ def log_sources(environment,memory,configured):
     kind=memory.get('PANEL_PROXY_KIND')
     selected=[]
     if kind in ('npm','nginx'):
-        selected=[p for p in all_sources if p.get('name')=='vw-panel-'+kind]
+        from managed_proxy import CONTAINERS
+        selected=[p for p in all_sources if p.get('source')=='docker' and p.get('name')==CONTAINERS[kind]]
     elif target:selected=[p for p in all_sources if p['id']==target]
     if selected:return selected
     if configured:

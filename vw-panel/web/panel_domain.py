@@ -39,7 +39,7 @@ def npm_options(environment):
 
 
 def managed_npm(manager, proxy):
-    if proxy['name'] != 'vw-panel-npm':
+    if proxy['name'] != 'nginx-proxy-manager':
         return False
     try:
         folder = manager.proxy_folder()

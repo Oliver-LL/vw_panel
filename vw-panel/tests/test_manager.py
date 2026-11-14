@@ -1,3 +1,4 @@
+from compose_test_utils import load_compose
 import importlib.util
 import json
 import os
@@ -173,6 +174,9 @@ class ManagerTests(unittest.TestCase):
     @patch('manager.ensure_caddy_available')
     def test_new_caddy_config_and_no_overwrite_on_domain_change(self, caddy_available):
         self.manager.save('core', dict(self.data, mode='caddy'))
+        compose = load_compose(self.deploy/'caddy/docker-compose.yml')
+        self.assertEqual(compose['services']['caddy']['container_name'], 'caddy')
+        self.assertEqual(list(compose['services']['caddy']['networks']), ['caddy_default'])
         caddy = self.deploy / 'caddy/Caddyfile'
         original = caddy.read_text()
         self.assertIn('vault.example.com', original)

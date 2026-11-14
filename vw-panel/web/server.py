@@ -263,7 +263,7 @@ def status():
         rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
         return {'available': True, 'docker_installed': True, 'containers': [
             {key: row.get(key, '') for key in ('Names', 'State', 'Status', 'Image')}
-            for row in rows if row.get('Names') in ('vaultwarden', 'vaultwarden-backup', 'caddy', 'vw-panel-npm', 'vw-panel-nginx', 'vw-panel-certbot')]}
+            for row in rows if row.get('Names') in ('vaultwarden', 'vaultwarden-backup', 'caddy', 'nginx-proxy-manager', 'nginx', 'certbot')]}
     except FileNotFoundError:
         return {'available': False, 'docker_installed': False, 'message': '尚未安装 Docker。', 'containers': []}
     except (OSError, subprocess.TimeoutExpired, ValueError):

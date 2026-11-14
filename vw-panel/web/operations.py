@@ -447,8 +447,9 @@ class OperationsMixin:
                 container=source['id']
                 if not re.fullmatch(r'[a-f0-9]{12,64}',container):raise ValueError('反代容器信息无效，请重新检测。')
                 self._command(['docker','logs','--tail','150',container])
-                if source['name']=='vw-panel-nginx':
-                    try:self._command(['docker','logs','--tail','100','vw-panel-certbot'])
+                if (memory.get('PANEL_PROXY_KIND') == 'nginx' and source['name'] == 'nginx'
+                        and memory.get('DOCKER_NET') in source.get('networks', [])):
+                    try:self._command(['docker','logs','--tail','100','certbot'])
                     except ValueError:self.emit('续期服务尚未就绪，请先完成首次证书申请。')
             return
         if action=='upgrade-backup':

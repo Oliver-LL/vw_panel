@@ -35,6 +35,10 @@ class ManagedProxyTests(unittest.TestCase):
         password='P$a\\s"s$$word!12345'
         folder=self.configure(NPM_ADMIN_PASSWORD=password)
         compose=load_compose(folder/'docker-compose.yml')
+        self.assertEqual(compose['services']['npm']['container_name'], 'nginx-proxy-manager')
+        self.assertEqual(list(compose['services']['npm']['networks']), ['nginx-proxy-manager_default'])
+        core = load_compose(self.deploy/'vaultwarden/docker-compose.yml')
+        self.assertEqual(list(core['services']['vaultwarden']['networks']), ['nginx-proxy-manager_default'])
         self.assertEqual(self.manager.npm_credentials()['password'],password)
         self.assertEqual(compose['services']['npm']['environment']['INITIAL_ADMIN_PASSWORD'],password.replace('$','$$'))
         self.assertNotIn(password,json.dumps(self.manager.config()))
@@ -55,6 +59,9 @@ class ManagedProxyTests(unittest.TestCase):
         self.assertNotIn('listen 443',active)
         self.assertIn('proxy_set_header Upgrade',(folder/'desired.conf').read_text())
         compose=load_compose(folder/'docker-compose.yml')
+        self.assertEqual(compose['services']['nginx']['container_name'], 'nginx')
+        self.assertEqual(list(compose['services']['nginx']['networks']), ['nginx_default'])
+        self.assertEqual(compose['services']['renew']['container_name'], 'certbot')
         self.assertEqual(compose['services']['certbot']['profiles'],['certificate'])
         self.assertIn('certbot renew',compose['services']['renew']['command'][0])
         self.manager.save('core',dict(self.data,mode='nginx',DOMAIN='https://changed.example.com'))
@@ -72,7 +79,7 @@ class ManagedProxyTests(unittest.TestCase):
         with patch.object(self.manager,'_command',side_effect=command):self.manager.deploy_managed_proxy()
         self.assertIn('listen 443 ssl',(folder/'conf.d/site.conf').read_text())
         self.assertTrue(any(args[-3:]==['up','-d','renew'] for args in self.calls))
-        self.assertTrue(any(args[-3:]==['vw-panel-nginx','nginx','-t'] for args in self.calls))
+        self.assertTrue(any(args[-3:]==['nginx','nginx','-t'] for args in self.calls))
     def test_nginx_acme_failure_restores_previous_configuration(self):
         folder=self.configure('nginx');previous=https_nginx('previous.example.com');(folder/'conf.d/site.conf').write_text(previous)
         def command(args,**kwargs):
@@ -126,7 +133,7 @@ class ManagedProxyTests(unittest.TestCase):
         self.configure();password=self.manager.npm_credentials()['password'];self.manager.logfile=tempfile.TemporaryFile('w+b')
         def run(args,**kwargs):
             kwargs['stdout'].write(('Creating user password: '+password+'\nCreating a new user: old@example.com with password: OldBootstrapSecret123!').encode());return SimpleNamespace(returncode=0)
-        with patch('manager.subprocess.run',side_effect=run):raw=self.manager._command(['docker','logs','vw-panel-npm'])
+        with patch('manager.subprocess.run',side_effect=run):raw=self.manager._command(['docker','logs','nginx-proxy-manager'])
         self.assertNotIn(password,raw);self.assertNotIn('OldBootstrapSecret123!',raw);self.manager.logfile.seek(0);self.assertNotIn(password,self.manager.logfile.read().decode())
 
 
@@ -143,20 +150,20 @@ class ManagedProxyIntegrationTests(unittest.TestCase):
         with patch.object(self.manager,'_command',side_effect=self.command),patch.object(self.manager,'deploy_managed_proxy') as deploy,patch('manager.existing_network',side_effect=AssertionError('new managed network must not be treated as external')),patch('manager.ensure_proxy_ports'),patch('manager.subprocess.run',return_value=SimpleNamespace(returncode=1)):
             self.manager._run('deploy',{},contextlib.nullcontext())
         self.assertEqual(self.manager.task()['state'],'success');deploy.assert_called_once_with(upgrade=False)
-        self.assertIn(['docker','network','create','vaultwarden_net'],self.calls)
+        self.assertIn(['docker','network','create','nginx-proxy-manager_default'],self.calls)
         self.assertEqual(self.manager.config()['application']['core'],'applied')
     def test_nginx_logs_include_certificate_renewal_service(self):
         self.configure('nginx')
-        with patch.object(self.manager,'_command',side_effect=self.command),patch('proxy_environment.detect_environment',return_value={'proxies':[{'id':'a'*12,'name':'vw-panel-nginx','kind':'Nginx','source':'docker','running':True,'networks':['vaultwarden_net']}]}):self.manager.run_extended('proxy-logs',{})
-        self.assertEqual([cmd[-1] for cmd in self.calls],['a'*12,'vw-panel-certbot'])
+        with patch.object(self.manager,'_command',side_effect=self.command),patch('proxy_environment.detect_environment',return_value={'proxies':[{'id':'a'*12,'name':'nginx','kind':'Nginx','source':'docker','running':True,'networks':['nginx_default']}]}):self.manager.run_extended('proxy-logs',{})
+        self.assertEqual([cmd[-1] for cmd in self.calls],['a'*12,'certbot'])
 
 class ManagedProxyOwnershipTests(unittest.TestCase):
     def test_running_nginx_does_not_hide_foreign_renewal_container(self):
         folder=Path('/tmp/panel-owned-nginx')
         def inspect(args):
-            source=str(folder/'conf.d') if args[-1]=='vw-panel-nginx' else '/unrelated/certificates'
+            source=str(folder/'conf.d') if args[-1]=='nginx' else '/unrelated/certificates'
             return SimpleNamespace(returncode=0,stdout=json.dumps({'running':True,'mounts':[{'Source':source}]}))
-        with patch('managed_proxy.docker',side_effect=inspect),self.assertRaisesRegex(ValueError,'vw-panel-certbot'):
+        with patch('managed_proxy.docker',side_effect=inspect),self.assertRaisesRegex(ValueError,'certbot'):
             ensure_proxy_ports('nginx',folder)
 
 class NPMHTTPTests(unittest.TestCase):

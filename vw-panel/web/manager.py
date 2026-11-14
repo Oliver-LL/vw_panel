@@ -381,7 +381,8 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             mode = data.get('mode', 'caddy')
             if mode not in ('caddy', 'npm', 'nginx', 'host_ext', 'docker_ext'):
                 raise ValueError('请选择访问方式。')
-            network = text(data.get('network', 'vaultwarden_net'), '网络名')
+            default_network = {'caddy': 'caddy_default', 'npm': 'nginx-proxy-manager_default', 'nginx': 'nginx_default'}
+            network = text(default_network[mode] if mode in default_network else data.get('network', 'vaultwarden_net'), '网络名')
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}', network):
                 raise ValueError('Docker 网络名不正确。')
             if mode == 'docker_ext':

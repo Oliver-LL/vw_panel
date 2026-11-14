@@ -219,6 +219,7 @@ function renderVaultAddresses(){
 }
 async function loadConfig(){try{const previousContext=proxyContext(cfg);cfg=await api('config');if(previousContext&&previousContext!==proxyContext(cfg)){proxyEnvironment=null;proxyLogPreference='';proxyDetectionSequence++;proxyDetectionLoading=false}const defaults={SIGNUPS_ALLOWED:!cfg.configured,INVITATIONS_ALLOWED:true,SENDS_ALLOWED:false};for(const key of Object.keys(defaults)){if(cfg.core[key]!=='')defaults[key]=cfg.core[key]}fill('core-form',{...cfg.core,...defaults,directory:cfg.directory,mode:cfg.mode,port:cfg.port,network:cfg.network});fill('permissions-form',{...cfg.core,...defaults});fill('mail-form',{SMTP_PORT:'587',SMTP_SECURITY:'starttls',...Object.fromEntries(Object.entries(cfg.core).filter(([,v])=>v!==''))});fill('backup-form',{CRON:'0 3 * * *',BACKUP_KEEP_DAYS:'30',TIMEZONE:'Asia/Shanghai',ZIP_ENABLE:true,ZIP_TYPE:'zip',BACKUP_FILE_SUFFIX:'%Y%m%d-%H%M%S',DISPLAY_NAME:'vaultwarden',...Object.fromEntries(Object.entries(cfg.backup).filter(([,v])=>v!==''))});$('admin-badge').textContent=cfg.admin_set?'已设置 · 留空保留':'尚未设置';$('admin-badge').className='badge'+(cfg.admin_set?' success':'');for(const field of $('core-form').elements){if(['directory','mode','port','network'].includes(field.name))field.disabled=cfg.configured}$('topology-note').hidden=!cfg.configured;const smtp=$('mail-form').elements.SMTP_PASSWORD;smtp.placeholder=cfg.smtp_password_set?'已保存 · 留空保留原值':'填写邮箱授权码';$('backup-form').elements.ZIP_PASSWORD.placeholder=cfg.zip_password_set?'已保存 · 留空保留原值':'首次配置请设置加密密码';$('step-config').classList.toggle('done',cfg.configured);$('step-config').querySelector('b').textContent=cfg.configured?'已保存':'待配置';$('step-token').classList.toggle('done',cfg.admin_set);$('step-token').querySelector('b').textContent=cfg.admin_set?'已保护':'待设置';renderVaultAddresses();renderFiles(cfg.files);renderExtras(cfg);routeHelp();updateGroupSummaries();renderPresentation();if(!proxyEnvironment&&!proxyDetectionLoading)loadProxyEnvironment()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}}
 function renderFiles(files){const box=$('backup-files');box.replaceChildren();if(!files.length){const empty=document.createElement('div');empty.className='empty';const title=document.createElement('strong');title.textContent='还没有本机备份';empty.append(title,document.createTextNode('保存备份计划并启用后，点击“立即备份”创建第一份。'));box.append(empty)}for(const file of files){const row=document.createElement('div');row.className='file-row';for(const [i,value]of [file.name,formatSize(file.size),new Date(file.modified*1000).toLocaleString('zh-CN',{hour12:false})].entries()){const span=document.createElement(i===0?'strong':'span');span.textContent=value;row.append(span)}const actions=document.createElement('div');actions.className='backup-file-actions';const download=document.createElement('a');download.textContent='下载';download.href='/api/backups/download?file='+encodeURIComponent(file.name);actions.append(download);if(/\.(zip|7z)$/i.test(file.name)){const restore=document.createElement('button');restore.type='button';restore.className='ghost';restore.textContent='选择恢复';restore.onclick=()=>{const form=$('restore-form');if(form.elements.file.value!==file.name)form.elements.password.value='';form.elements.file.value=file.name;form.elements.confirmation.value='';revealGroup(form);form.closest('.config-group').scrollIntoView({behavior:'smooth',block:'start'})};actions.append(restore)}row.append(actions);box.append(row)}const latest=files[0];$('latest-backup').textContent=latest?new Date(latest.modified*1000).toLocaleDateString('zh-CN'):'暂无归档';$('latest-detail').textContent=latest?latest.name:'启用自动备份，保护你的数据'}
+const newProxyNetworks={caddy:'caddy_default',npm:'nginx-proxy-manager_default',nginx:'nginx_default'};
 function proxyNetworkChoices(){
     const choices=new Map();
     const target=$('core-form').elements.PROXY_TARGET.value;
@@ -237,7 +238,7 @@ function paintProxyEnvironment(){
     $('proxy-choice-field').hidden=mode!=='docker_ext'||!!cfg?.configured||!choices.size;
     select.disabled=!!cfg?.configured||proxyDetectionLoading;
     if(!cfg?.configured&&mode==='docker_ext'&&!proxyNetworkEdited){
-        if(!network.value||network.value==='vaultwarden_net'||network.value===network.dataset.detected){
+        if(!network.value||network.value==='vaultwarden_net'||Object.values(newProxyNetworks).includes(network.value)||network.value===network.dataset.detected){
             network.value=proxyEnvironment?.complete&&choices.size===1?[...choices.keys()][0]:'';
             network.dataset.detected=network.value;
         }
@@ -344,7 +345,7 @@ function renderManagedProxy(){
     $('managed-proxy-info').hidden=!managed;$('npm-access').hidden=!npm;
     $('remove-proxy-field').hidden=!managed||$('remove-form').elements.scope.value==='backup';
     if(npm){
-        const instance=(proxyEnvironment?.proxies||[]).find(item=>item.name==='vw-panel-npm'&&item.running);
+        const instance=(proxyEnvironment?.proxies||[]).find(item=>item.source==='docker'&&item.name==='nginx-proxy-manager'&&item.running);
         renderNpmLink('open-npm',instance);
         $('managed-proxy-description').textContent='面板已保存 NPM 管理账号，可按需查看。';
     }else if(managed)$('managed-proxy-description').textContent='Nginx 与证书续期服务由面板管理；修改域名后保存并应用配置，证书申请失败会恢复之前的 Nginx 配置。';
@@ -422,7 +423,7 @@ function routeHelp(){
     renderManagedProxy();
     form.elements.port.closest('label').hidden=mode!=='host_ext';form.elements.network.closest('label').hidden=mode!=='docker_ext';
     form.elements.network.required=mode==='docker_ext'&&!cfg?.configured;
-    if(!cfg?.configured){if(mode!=='docker_ext')form.elements.network.value=cfg?.network||'vaultwarden_net';else if(proxyNetworkEdited)form.elements.network.value=proxyManualNetwork}
+    if(!cfg?.configured){if(mode!=='docker_ext')form.elements.network.value=newProxyNetworks[mode]||cfg?.network||'vaultwarden_net';else if(proxyNetworkEdited)form.elements.network.value=proxyManualNetwork}
     paintProxyEnvironment();
     renderExternalProxyGuide();
     if(!cfg?.configured&&mode==='npm'){$('route-help').textContent='新装 NPM：自动启动代理、创建管理账号、配置密码库站点并申请 HTTPS；无需再手动新增转发规则。需要域名已解析到本机，80 / 443 和管理端口可用。';return}

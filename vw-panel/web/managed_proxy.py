@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from proxy_environment import docker, CONTAINER_FORMAT
 
 KINDS = ('npm', 'nginx')
-CONTAINERS = {'npm': 'vw-panel-npm', 'nginx': 'vw-panel-nginx'}
+CONTAINERS = {'npm': 'nginx-proxy-manager', 'nginx': 'nginx'}
 NPM_IMAGE = 'jc21/nginx-proxy-manager:2.16.0'
 NGINX_IMAGE = 'nginx:stable-alpine'
 CERTBOT_IMAGE = 'certbot/certbot:latest'
@@ -64,7 +64,7 @@ def ensure_proxy_ports(kind, folder, admin_port=None):
     """Only reuse containers whose bind mounts belong to this managed directory."""
     name = CONTAINERS[kind]
     running = False
-    for candidate in ([name, 'vw-panel-certbot'] if kind=='nginx' else [name]):
+    for candidate in ([name, 'certbot'] if kind=='nginx' else [name]):
         try:
             result = docker(['inspect', '--format', CONTAINER_FORMAT, candidate])
             if result.returncode == 0:
@@ -187,7 +187,7 @@ class ManagedProxyMixin:
             services['nginx'] = service
             services['certbot'] = {'image': CERTBOT_IMAGE, 'profiles': ['certificate'],
                 'volumes': ['./webroot:/var/www/certbot', './letsencrypt:/etc/letsencrypt']}
-            services['renew'] = {'image': CERTBOT_IMAGE, 'container_name': 'vw-panel-certbot', 'restart': 'unless-stopped',
+            services['renew'] = {'image': CERTBOT_IMAGE, 'container_name': 'certbot', 'restart': 'unless-stopped',
                 'entrypoint': ['/bin/sh', '-c'], 'command': ['trap exit TERM INT; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 43200 & wait $$!; done'],
                 'volumes': ['./webroot:/var/www/certbot', './letsencrypt:/etc/letsencrypt']}
             files['desired.conf'] = https_nginx(domain)
@@ -349,6 +349,6 @@ class ManagedProxyMixin:
                 except (ValueError,OSError,subprocess.SubprocessError):pass
                 raise
             self.emit('Nginx HTTPS 已启用，证书定时续期，Nginx 定时加载续期后的证书。')
-        for container in ([CONTAINERS[kind], 'vw-panel-certbot'] if kind=='nginx' else [CONTAINERS[kind]]):
+        for container in ([CONTAINERS[kind], 'certbot'] if kind=='nginx' else [CONTAINERS[kind]]):
             running=self._command(['docker','inspect','--format','{{.State.Running}}',container])
             if running.strip()!='true':raise ValueError('反代或续期容器未保持运行，请查看代理日志。')
