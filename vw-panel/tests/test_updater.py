@@ -95,6 +95,39 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(self.updates.progress()['state'],'success')
         self.assertEqual(len(urls),2);self.assertTrue(all('/'+('d'*40)+'/vw-panel/' in url for url in urls));self.assertTrue(all('/main/' not in url for url in urls))
 
+    def test_web_edition_checks_and_installs_only_its_own_release(self):
+        (self.current / 'version.json').write_text(json.dumps(dict(self.old, edition='web')))
+        urls = []
+
+        def download(url, maximum):
+            filename = url.rsplit('/', 1)[-1]
+            urls.append(filename)
+            if filename == 'release-web.json':
+                return json.dumps(dict(self.latest, edition='web')).encode()
+            if filename == 'install-vw-web-only.sh':
+                return self.body
+            raise AssertionError(url)
+
+        def install(*args, **kwargs):
+            (self.current / 'version.json').write_text(json.dumps(dict(self.latest, edition='web')))
+            return SimpleNamespace(returncode=0)
+
+        with patch('updater.fetch', side_effect=download):
+            checked = self.updates.check()
+            self.assertTrue(checked['available'])
+            private_json(self.state / 'update.json', dict(checked['latest'], state='upgrading', token='fixture'))
+            with patch('updater.subprocess.run', side_effect=install):
+                self.updates.apply('fixture')
+        self.assertEqual(self.updates.progress()['state'], 'success')
+        self.assertEqual(urls, ['release-web.json', 'install-vw-web-only.sh'])
+
+        self.prepare()  # A legacy request has full-edition metadata.
+        with patch('updater.fetch') as download, patch('updater.subprocess.run') as install:
+            self.updates.apply('fixture')
+        download.assert_not_called()
+        install.assert_not_called()
+        self.assertEqual(self.updates.progress()['state'], 'failed')
+
     def test_legacy_request_rejects_changed_release_before_install(self):
         self.prepare();value=json.loads((self.state/'update.json').read_text());value.pop('commit');private_json(self.state/'update.json',value)
         with patch('updater.fetch',return_value=json.dumps(dict(self.latest,build_id='e'*64)).encode()),patch('updater.subprocess.run') as install:

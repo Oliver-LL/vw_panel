@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Self-contained installer. No GitHub checkout, npm, pip or Docker required for panel startup.
+edition='@EDITION@'
+installer_name='@INSTALLER_NAME@'
 payload_sha='@PAYLOAD_SHA256@'
 extract_payload() {
     local target="$1" archive="$2"
@@ -9,7 +11,7 @@ extract_payload() {
     tar -xzf "$archive" -C "$target"
 }
 if [[ "${1:-}" == --extract ]]; then
-    [[ $# -eq 2 ]] || { echo '用法：bash install-vw-web.sh --extract 目标目录'; exit 1; }
+    [[ $# -eq 2 ]] || { echo "用法：bash $installer_name --extract 目标目录"; exit 1; }
     mkdir -p "$2"
     archive="$(mktemp)"
     trap 'rm -f "$archive"' EXIT
@@ -18,14 +20,19 @@ if [[ "${1:-}" == --extract ]]; then
     exit 0
 fi
 if [[ "${1:-}" == --help ]]; then
-    echo '用法：sudo bash install-vw-web.sh'
-    echo '      bash install-vw-web.sh --extract 目标目录'
-    echo '选项：--install 安装/升级；--original 原始脚本；--menu 管理菜单；--uninstall 卸载面板'
+    echo "用法：sudo bash $installer_name"
+    echo "      bash $installer_name --extract 目标目录"
+    echo '选项：--install 安装/升级；--menu 管理菜单；--uninstall 卸载面板'
+    if [[ "$edition" == full ]]; then echo '      --original 原始脚本'; fi
     exit 0
 fi
 [[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --upgrade || "$1" == --install || "$1" == --original || "$1" == --menu || "$1" == --uninstall ) ) ]] || { echo '未知参数，请使用 --help。'; exit 1; }
+if [[ "${1:-}" == --original && "$edition" != full ]]; then
+    echo '此入口仅适用于完整版。'
+    exit 1
+fi
 [[ "$(uname -s)" == Linux ]] || { echo '请把安装文件上传到 Linux 服务器执行。'; exit 1; }
-[[ "$EUID" -eq 0 ]] || { echo '请执行 sudo bash install-vw-web.sh'; exit 1; }
+[[ "$EUID" -eq 0 ]] || { echo "请执行 sudo bash $installer_name"; exit 1; }
 (( BASH_VERSINFO[0] >= 4 )) || { echo '需要 Bash 4 或更高版本。'; exit 1; }
 command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || { echo '需要使用 systemd 的 Linux 服务器（例如 Debian 12）。'; exit 1; }
 if [[ "${1:-}" == --upgrade ]]; then
@@ -36,30 +43,46 @@ else
     exec 3<>/dev/tty
 fi
 choice=1
+menu_option=2
+uninstall_option=3
+edition_label='纯网页版'
+if [[ "$edition" == full ]]; then
+    menu_option=3
+    uninstall_option=4
+    edition_label='网页版 + 脚本版'
+fi
 case "${1:-}" in
-    --original) choice=2;; --menu) choice=3;; --uninstall) choice=4;;
+    --original) choice=original;; --menu) choice=menu;; --uninstall) choice=uninstall;;
     --install|--upgrade) choice=1;;
     '')
-        echo '========== Vaultwarden 安装与管理 =========='
+        echo "========== Vaultwarden · $edition_label =========="
         echo ' 1) 安装 / 升级网页面板'
-        echo ' 2) 进入原始 Bash 部署脚本'
-        echo ' 3) 已安装面板的管理菜单'
-        echo ' 4) 卸载网页面板（保留密码库和备份）'
+        if [[ "$edition" == full ]]; then echo ' 2) 进入原始 Bash 部署脚本'; fi
+        echo " $menu_option) 已安装面板的管理菜单"
+        echo " $uninstall_option) 卸载网页面板（保留密码库和备份）"
         echo ' 0) 退出'
         read -r -p '请选择 [默认 1]: ' choice <&3
-        choice="${choice:-1}";;
+        choice="${choice:-1}"
+        case "$choice" in
+            "$menu_option") choice=menu;;
+            "$uninstall_option") choice=uninstall;;
+            2) choice=original;;
+            0|1|q|Q) ;;
+            *) choice=invalid;;
+        esac;;
 esac
 case "$choice" in
     0|q|Q) exit 0;;
-    2)
+    original)
+        [[ "$edition" == full ]] || exit 1
         original_tmp="$(mktemp -d)"; original_archive="$(mktemp)"
         trap 'rm -rf -- "$original_tmp"; rm -f -- "$original_archive"' EXIT
         extract_payload "$original_tmp" "$original_archive"
         echo '原始脚本不受网页任务锁保护，请勿与网页同时部署或恢复。'
         bash "$original_tmp/vw_original.sh"; exit $?;;
-    3|4)
+    menu|uninstall)
         [[ -x /usr/local/bin/vwp ]] || { echo '尚未安装网页面板。'; exit 1; }
-        if [[ "$choice" == 4 ]]; then exec /usr/local/bin/vwp uninstall; fi
+        if [[ "$choice" == uninstall ]]; then exec /usr/local/bin/vwp uninstall; fi
         exec /usr/local/bin/vwp menu;;
     1) ;; *) echo '无效的菜单选项。'; exit 1;;
 esac
@@ -180,9 +203,9 @@ fi
 rm -f "$bootstrap_secret"
 echo "面板端口：$panel_port"
 echo '终端管理菜单：sudo vwp'
-echo '原始 Bash 脚本：sudo vwp original'
+if [[ "$edition" == full ]]; then echo '原始 Bash 脚本：sudo vwp original'; fi
 echo '卸载网页面板：sudo vwp uninstall（保留密码库与备份）'
 echo "若无法访问，请在云安全组及服务器防火墙放行 TCP $panel_port。"
 echo '后续绑定域名：网页 → 面板设置，或 sudo vwp domain https://你的面板域名'
-echo '面板已设置开机启动；原有密码库和原脚本没有被改动。'
+echo '面板已设置开机启动。'
 exit 0

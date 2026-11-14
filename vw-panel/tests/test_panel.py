@@ -223,6 +223,25 @@ class PackagingTests(unittest.TestCase):
             for name in ('version.json','panel-cli.sh','vw_original.sh','vw_web.sh','web/server.py','web/session_store.py','web/manager.py','web/compose_yaml.py','web/proxy_environment.py','web/managed_proxy.py','web/existing_npm.py','web/updater.py','web/operations.py','web/remote_config.py','web/browser_oauth.py','web/backup_targets.py','web/backup_result.py','web/storage_presets.py','web/environment.py','web/env_catalog.json','web/tty_worker.py','web/static/index.html','web/static/app.js','web/static/style.css'):
                 self.assertEqual((ROOT/name).read_bytes(), (Path(directory)/name).read_bytes())
 
+    def test_web_installer_excludes_shell_features(self):
+        installer = ROOT / 'install-vw-web-only.sh'
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run(['bash', str(installer), '--extract', directory], check=True, capture_output=True)
+            extracted = Path(directory)
+            for name in ('vw_original.sh', 'vw_web.sh', 'web/tty_worker.py'):
+                self.assertFalse((extracted / name).exists())
+            html = (extracted / 'web/static/index.html').read_text()
+            self.assertNotIn('id="advanced"', html)
+            self.assertNotIn('id="feature-map"', html)
+            manifest = json.loads((ROOT / 'release-web.json').read_text())
+            version = json.loads((extracted / 'version.json').read_text())
+            self.assertEqual(version['edition'], 'web')
+            self.assertEqual(version['build_id'], manifest['build_id'])
+            self.assertEqual(hashlib.sha256(installer.read_bytes()).hexdigest(), manifest['installer_sha256'])
+        help_text = subprocess.check_output(['bash', str(installer), '--help'], text=True)
+        self.assertNotIn('--original', help_text)
+        self.assertNotEqual(subprocess.run(['bash', str(installer), '--original'], capture_output=True).returncode, 0)
+
     def test_corrupted_payload_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             broken = Path(directory)/'broken.sh'

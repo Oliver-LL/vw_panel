@@ -15,7 +15,11 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = 'Oliver-LL/vw_web'
+REPOSITORY = 'Oliver-LL/vw_panel'
+RELEASE_FILES = {
+    'full': ('release.json', 'install-vw-web.sh'),
+    'web': ('release-web.json', 'install-vw-web-only.sh'),
+}
 CHECK_INTERVAL = 6 * 3600
 
 def revision():
@@ -57,6 +61,10 @@ def manifest(data):
     if not isinstance(data.get('version'), str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', data['version']):
         raise ValueError('发布版本格式不正确。')
     result={key: data[key] for key in ('build_id', 'version', 'installer_sha256')}
+    edition = data.get('edition', 'full')
+    if not isinstance(edition, str) or edition not in RELEASE_FILES:
+        raise ValueError('发布版本类型不正确。')
+    result['edition'] = edition
     if 'commit' in data:
         release_base(data['commit']);result['commit']=data['commit']
     return result
@@ -92,7 +100,11 @@ class Updates:
             if force or self.cached is None or now >= self.next_check:
                 try:
                     commit=revision()
-                    latest = manifest(json.loads(fetch(release_base(commit)+'release.json', 32768)))
+                    edition = installed.get('edition', 'full')
+                    manifest_name, _ = RELEASE_FILES[edition]
+                    latest = manifest(json.loads(fetch(release_base(commit) + manifest_name, 32768)))
+                    if latest['edition'] != edition:
+                        raise ValueError('发布版本类型与已安装版本不一致。')
                     latest['commit']=commit
                     self.cached = {'latest': latest, 'checked_at': now, 'error': ''}
                     self.next_check = now + CHECK_INTERVAL
@@ -150,16 +162,21 @@ class Updates:
         folder = self.state / ('update-' + token)
         try:
             folder.mkdir(mode=0o700)
-            if self.installed().get('build_id') == expected['build_id']:
+            installed = self.installed()
+            edition = installed.get('edition', 'full')
+            if expected['edition'] != edition:
+                raise ValueError('升级包与当前版本类型不一致。')
+            manifest_name, installer_name = RELEASE_FILES[edition]
+            if installed.get('build_id') == expected['build_id']:
                 value.update(state='success', finished=time.time());private_json(path, value);return
             commit=expected.get('commit')
             if not commit:
                 # Safely resolve an older request without ever mixing moving branch URLs.
                 commit=revision()
-                pinned=manifest(json.loads(fetch(release_base(commit)+'release.json',32768)))
-                if any(pinned[key]!=expected[key] for key in ('build_id','version','installer_sha256')):
+                pinned=manifest(json.loads(fetch(release_base(commit) + manifest_name,32768)))
+                if any(pinned[key]!=expected[key] for key in ('build_id','version','installer_sha256','edition')):
                     raise ValueError('发布版本已变化，尚未执行安装。请重新检查版本后重试。')
-            body = fetch(release_base(commit)+'install-vw-web.sh', 16 * 1024 * 1024)
+            body = fetch(release_base(commit) + installer_name, 16 * 1024 * 1024)
             if hashlib.sha256(body).hexdigest() != expected['installer_sha256']:
                 raise ValueError('下载校验失败，尚未执行安装。请重新检查版本后重试。')
             installer = folder / 'install.sh'
@@ -171,7 +188,8 @@ class Updates:
                                         stdout=output, stderr=output, timeout=900)
             if result.returncode:
                 raise ValueError('面板升级未完成，请查看 /var/lib/vw-panel/update.log；安装器启动检查失败时会尝试回退。')
-            if self.installed().get('build_id') != expected['build_id']:
+            installed = self.installed()
+            if installed.get('build_id') != expected['build_id'] or installed.get('edition', 'full') != edition:
                 raise ValueError('安装后的构建与目标不一致，请重新检查版本。')
             value.update(state='success', finished=time.time(), error='')
         except (OSError, ValueError, subprocess.SubprocessError) as error:

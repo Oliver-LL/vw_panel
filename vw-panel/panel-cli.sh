@@ -2,21 +2,52 @@
 set -euo pipefail
 panel_root=/opt/vw-panel
 panel_state=/var/lib/vw-panel
+edition_label='纯网页版'
+has_scripts=false
+if [[ -f "$panel_root/current/vw_original.sh" ]]; then
+    edition_label='网页版 + 脚本版'
+    has_scripts=true
+fi
+case "${1:-menu}" in
+    original|bash)
+        if [[ "$has_scripts" != true ]]; then
+            echo '此入口仅适用于完整版。'
+            exit 1
+        fi;;
+esac
 need_root() { [[ "$EUID" -eq 0 ]] || { echo '请使用 sudo vwp。'; exit 1; }; }
 menu() {
+    local uninstall_option=10 check_option=11 update_option=12
+    if [[ "$has_scripts" == true ]]; then
+        uninstall_option=12
+        check_option=13
+        update_option=14
+    fi
     while true; do
-        echo; echo '========== Vaultwarden 管理菜单 =========='
+        echo; echo "========== Vaultwarden · $edition_label =========="
         echo ' 1) 面板地址与信息'; echo ' 2) 查看面板状态'; echo ' 3) 启动面板'; echo ' 4) 停止面板'
         echo ' 5) 重启面板'; echo ' 6) 查看面板日志'; echo ' 7) 重设面板密码（回车随机）'
         echo ' 8) 修改面板端口（回车随机）'; echo ' 9) 设置面板域名'
-        echo '10) 进入 Bash 部署菜单（共享网页配置，推荐）'; echo '11) 进入原始 Bash 快照（未修改）'
-        echo '12) 卸载网页面板（保留密码库与备份）'; echo '13) 检查面板更新'; echo '14) 升级网页面板'; echo ' 0) 退出'
-        read -r -p '请选择 [0-14]: ' option || return
+        if [[ "$has_scripts" == true ]]; then
+            echo '10) 进入 Bash 部署菜单（共享网页配置）'
+            echo '11) 进入原始 Bash 快照'
+        fi
+        echo "$uninstall_option) 卸载网页面板（保留密码库与备份）"
+        echo "$check_option) 检查面板更新"
+        echo "$update_option) 升级网页面板"
+        echo ' 0) 退出'
+        read -r -p "请选择 [0-$update_option]: " option || return
         case "$option" in
             1) "$0" info;; 2) "$0" status || true;; 3) "$0" start;; 4) "$0" stop;; 5) "$0" restart;;
             6) "$0" logs;; 7) "$0" password;; 8) read -r -p '新端口 [回车随机]: ' value; "$0" port "$value";;
             9) read -r -p '面板 HTTPS 地址: ' value; "$0" domain "$value";;
-            10) "$0" bash;; 11) "$0" original;; 12) "$0" uninstall; return;; 13) "$0" check-update || true;; 14) "$0" update || true;; 0|q|Q) return;; *) echo '请选择正确的编号。';;
+            "$uninstall_option") "$0" uninstall; return;;
+            "$check_option") "$0" check-update || true;;
+            "$update_option") "$0" update || true;;
+            10) "$0" bash;;
+            11) "$0" original;;
+            0|q|Q) return;;
+            *) echo '请选择正确的编号。';;
         esac
     done
 }
@@ -105,6 +136,9 @@ print('访问地址：http://服务器公网IP:'+str(c['port']))
 for origin in c.get('origins',[]):print('域名访问：'+origin)
 print('密码仅在安装或重设时显示，忘记后可执行 sudo vwp password。')
 PY
-        echo '管理菜单：sudo vwp | 原始脚本：sudo vwp original | 卸载面板：sudo vwp uninstall';;
-    *) echo '命令：menu、info、status、start、stop、restart、logs、password、port、domain、original、bash、check-update、update、uninstall'; exit 1;;
+        echo '管理菜单：sudo vwp | 卸载面板：sudo vwp uninstall'
+        if [[ "$has_scripts" == true ]]; then echo '原始脚本：sudo vwp original'; fi;;
+    *) echo '命令：menu、info、status、start、stop、restart、logs、password、port、domain、check-update、update、uninstall'
+       if [[ "$has_scripts" == true ]]; then echo '脚本命令：original、bash'; fi
+       exit 1;;
 esac

@@ -349,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(500, {'error': '读取部署配置失败，请检查目录权限。'})
         if path == '/api/task':
             return self.reply(200, self.app.manager.task())
-        if path == '/api/terminal':
+        if path == '/api/terminal' and SCRIPT.is_file():
             query = parse_qs(urlsplit(self.path).query)
             try:
                 return self.reply(200, self.app.terminal.state(int(query.get('cursor', ['0'])[0]), query.get('generation', [''])[0]))
@@ -424,6 +424,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(401, {'error': '请先登录。'})
         if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), auth[1]):
             return self.reply(403, {'error': '请求校验失败，请刷新页面。'})
+        if path.startswith('/api/terminal/') and not SCRIPT.is_file():
+            return self.reply(404, {'error': '接口不存在。'})
         try:
             if path == '/api/storage/wizard/cancel':
                 from remote_config import cancel
