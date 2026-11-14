@@ -31,3 +31,11 @@ class PanelAccessTests(unittest.TestCase):
             self.assertEqual(command.call_args_list, [
                 call('ufw', 'status', 'numbered'), call('ufw', '--force', 'delete', '2'),
             ])
+
+    def test_proxy_rule_replacement_uses_address_and_interface_to_find_old_rule(self):
+        status = ('[ 1] 172.21.0.1 49152/tcp on br-new ALLOW IN Anywhere # VW PANEL 49152 proxy\n'
+                  '[ 2] 172.20.0.1 49152/tcp on br-old ALLOW IN Anywhere # VW PANEL 49152 proxy\n')
+        old = ['ufw', 'in', 'on', 'br-old', 'proto', 'tcp', 'from', 'any', 'to', '172.20.0.1', 'port', '49152']
+        with patch('panel_access.checked', return_value=status) as command:
+            panel_access.change(old, False)
+            self.assertEqual(command.call_args_list, [call('ufw', 'status', 'numbered'), call('ufw', '--force', 'delete', '2')])

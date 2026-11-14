@@ -50,7 +50,12 @@ def change(rule, adding):
         # because rule indexes shift after each removal.
         status = checked('ufw', 'status', 'numbered')
         marker = 'VW PANEL ' + rule[-1] + (' proxy' if 'on' in rule else ' public')
-        indexes = re.findall(r'^\[\s*(\d+)\].*#\s*'+re.escape(marker)+r'\s*$', status, re.M)
+        destination = rule[rule.index('to') + 1] if 'on' in rule else ''
+        entries = re.findall(r'^\[\s*(\d+)\]\s*(.*?)\s+#\s*'+re.escape(marker)+r'\s*$', status, re.M)
+        if destination:
+            target = f'{destination} {rule[-1]}/tcp on {rule[rule.index("on") + 1]}'
+            entries = [(index, line) for index, line in entries if ' '.join(line.split()).startswith(target + ' ')]
+        indexes = [index for index, _ in entries]
         if adding and not indexes:
             # Keep pre-existing broad allows, including their comments. The
             # dedicated nftables restriction still blocks external traffic.
@@ -74,8 +79,8 @@ def sync(state_dir, port=None, gateway=None, interface=None):
     added, removed = [], []
     try:
         for rule in desired:
+            change(rule, True)
             if rule not in previous:
-                change(rule, True)
                 added.append(rule)
         for rule in previous:
             if rule not in desired:

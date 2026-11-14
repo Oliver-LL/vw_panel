@@ -38,6 +38,7 @@ menu() {
         if [[ -f "$panel_state/panel.json" ]] && grep -q '"protected": true' "$panel_state/panel.json"; then
             echo ' p) 恢复面板 IP 直连'
         fi
+        echo ' r) 检测并修复面板反代'
         echo ' 0) 退出'
         read -r -p "请选择 [0-$update_option]: " option || return
         case "$option" in
@@ -50,13 +51,14 @@ menu() {
             10) "$0" bash;;
             11) "$0" original;;
             p) "$0" public || true;;
+            r) "$0" repair-proxy || true;;
             0|q|Q) return;;
             *) echo '请选择正确的编号。';;
         esac
     done
 }
 case "${1:-menu}" in
-    original|bash|password|port|domain|public|uninstall|restart|stop|start)
+    original|bash|password|port|domain|public|repair-proxy|uninstall|restart|stop|start)
         need_root
         if [[ -f "$panel_root/current/web/updater.py" ]]; then
             python3 "$panel_root/current/web/updater.py" busy --state-dir "$panel_state"
@@ -115,6 +117,13 @@ PY
         exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '有任务正在执行，请结束后再修改。'; exit 1; }
         python3 "$panel_root/current/web/server.py" domain --state-dir "$panel_state" --origin "$2"
         systemctl restart vw-panel;;
+    repair-proxy)
+        if python3 "$panel_root/current/web/server.py" repair-proxy --state-dir "$panel_state"; then
+            systemctl restart vw-panel
+        else
+            return_code=$?; [[ "$return_code" == 3 ]] || exit "$return_code"
+        fi
+        ;;
     public)
         need_root
         exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '有任务正在执行，请结束后再操作。'; exit 1; }
@@ -156,7 +165,7 @@ print('密码仅在安装或重设时显示，忘记后可执行 sudo vwp passwo
 PY
         echo '管理菜单：sudo vwp | 卸载面板：sudo vwp uninstall'
         if [[ "$has_scripts" == true ]]; then echo '原始脚本：sudo vwp original'; fi;;
-    *) echo '命令：menu、info、status、start、stop、restart、logs、password、port、domain、check-update、update、uninstall'
+    *) echo '命令：menu、info、status、start、stop、restart、logs、password、port、domain、repair-proxy、check-update、update、uninstall'
        if [[ "$has_scripts" == true ]]; then echo '脚本命令：original、bash'; fi
        exit 1;;
 esac

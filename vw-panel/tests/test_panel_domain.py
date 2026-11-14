@@ -89,3 +89,35 @@ class PanelDomainTests(unittest.TestCase):
             verify.side_effect = None
             protect(self.app, self.origin)
         self.assertTrue(self.app.config['panel_route']['protected'])
+
+    def test_repair_recreated_container_updates_only_recorded_upstream_and_rolls_back(self):
+        from panel_domain import repair
+        self.app.config['panel_route'] = {'origin': self.origin, 'port': 8787, 'proxy': self.proxy['name'],
+                                         'gateway': '172.20.0.1', 'interface': 'br-old', 'protected': True}
+        root = self.app.state_dir / 'panel-npm'
+        old_file = root / ('b'*12) / 'panel.example.com/route-state.json'
+        old_file.parent.mkdir(parents=True)
+        recorded = {'host_id': 7, 'domain': 'panel.example.com',
+                    'forward_host': '172.20.0.1', 'forward_port': 8787}
+        old_file.write_text(json.dumps(recorded))
+        adapter = Mock(folder=root / self.proxy['id'] / 'panel.example.com')
+        adapter._npm_token.return_value = 'fixture'
+        adapter._npm_request.return_value = dict(recorded, domain_names=['panel.example.com'], forward_scheme='http')
+        endpoint = ('172.21.0.2', '172.21.0.1', 'br-new')
+        with patch('panel_domain.repair_target', return_value=(self.app.config['panel_route'], self.proxy, endpoint)), patch(
+            'panel_domain.PanelNPM', return_value=adapter
+        ), patch('panel_domain.firewall') as firewall, patch('panel_domain.panel_access.sync'), patch(
+            'panel_domain.verify_https', side_effect=ValueError('TLS')
+        ) as verify:
+            with self.assertRaisesRegex(ValueError, 'TLS'):
+                repair(self.app, {'email': '', 'password': ''})
+            self.assertEqual(firewall.call_args_list, [call(8787, '172.21.0.1', 'br-new'), call(8787, '172.20.0.1', 'br-old')])
+            self.assertEqual(adapter._npm_request.call_args.args[1],
+                             {'forward_host': '172.20.0.1', 'forward_port': 8787})
+            verify.side_effect = None
+            repair(self.app, {'email': '', 'password': ''})
+        self.assertEqual(self.app.config['panel_route']['gateway'], '172.21.0.1')
+        self.assertTrue(self.app.config['panel_route']['protected'])
+        self.assertEqual(adapter._npm_request.call_args.args,
+                         ('nginx/proxy-hosts/7', {'forward_host': '172.21.0.1', 'forward_port': 8787}, 'fixture'))
+        self.assertFalse((self.app.state_dir / 'panel-repair-probe.json').exists())

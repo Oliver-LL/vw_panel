@@ -477,12 +477,12 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                   'admin-token': '加密管理口令', 'logs': '读取服务日志', 'backup-logs': '读取备份日志', 'install-docker': '安装 Docker', 'remote-save': '连接 WebDAV 备份存储'}
         titles.update(EXTRA_TASKS)
         if application is not None:
-            titles['panel-domain'] = '配置面板域名'
+            titles.update({'panel-domain': '配置面板域名', 'panel-domain-repair': '修复面板反代'})
         if not isinstance(action, str) or action not in titles:
             raise ValueError('未知操作。')
         if action in ('stop', 'upgrade', 'backup-stop', 'install-docker') and data.get('confirmed') is not True:
             raise ValueError('请确认此操作。')
-        if action == 'panel-domain':
+        if action in ('panel-domain', 'panel-domain-repair'):
             password = data
         elif action in EXTRA_TASKS:
             password=self.prepare_extended(action,data)
@@ -595,9 +595,10 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             before = {scope: self.revision(scope) for scope in ('core', 'backup')}
             app, backup = self.paths()
             memory = read_vars(self.memory)
-            if action == 'panel-domain':
-                from panel_domain import configure
-                self.job['result'] = {'panel_route': configure(application, password)}
+            if action in ('panel-domain', 'panel-domain-repair'):
+                from panel_domain import configure, repair
+                operation = repair if action == 'panel-domain-repair' else configure
+                self.job['result'] = {'panel_route': operation(application, password)}
                 succeeded = True
                 return
             if action in EXTRA_TASKS:

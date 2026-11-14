@@ -89,10 +89,14 @@ function taskOutcome(job){
     if(job.state==='failed'){if(action==='remote-list'&&context.name===$('remote-browse-form').elements.name.value)remoteBrowserState('文件读取失败，请检查连接和目录，或点击刷新重试。');if(action==='remote-preset-save'){presetSubmitted=null;storageSubmittedDraft=null;}let message=job.error;const generic=!message||['操作失败，请检查连接与配置。凭据未写入日志。','命令执行失败，请查看任务详情。','操作失败，请查看执行详情。'].includes(message);if(generic)message=({ 'backup-now':'备份未完成，请查看失败详情，确认数据库及目标存储是否可用。','remote-check':'连接验证未完成，请检查存储连接信息和目录权限。','remote-about':'未能读取存储信息，请检查授权状态。','remote-list':'未能读取备份列表，请检查存储、Bucket 和保存目录。','remote-download':'备份下载失败，请检查源文件、服务器网络和可用空间。','remote-file-delete':'远程备份删除失败，请检查文件是否存在，以及存储账号是否有删除权限。','mail-test':'测试邮件发送失败，请检查 SMTP 地址、端口、授权码和收件地址。','remote-wizard':'存储向导未能启动，请检查 Docker 与备份镜像。','remote-continue':'存储配置未完成，请检查本步填写内容，或重新开始授权。','restore':'备份恢复失败，请检查压缩包、加密密码和可用空间。',logs:'密码库日志读取失败，请确认服务已经部署。','backup-logs':'备份日志读取失败，请确认备份服务已经部署。','proxy-logs':'反代日志读取失败，请检查所选反代是否存在。'})[action]||'本次请求未完成，请打开失败详情，按具体原因重试。';notice(message,true,{detail:true});return}
     if(action==='backup-target-save'){$('target-dialog').close();dirty.delete('target-editor-form')}
     if(action==='backup-target-toggle'||action==='backup-target-save'){const count=(cfg?.extras?.targets||[]).filter(row=>row.enabled!==false).length,running=environment?.containers?.some(row=>row.Names==='vaultwarden-backup'&&row.State==='running');notice(!count?'所有目标已停用，备份投递已暂停。':running?'备份目标已生效，当前启用 '+count+' 个目标。':'备份目标已保存。请在备份设置中启动备份服务。');return}
+    if(action==='panel-domain-repair'){
+        panelRepair=null;$('panel-repair-result').hidden=true;loadSettings();notice('反代已修复，HTTPS 验证通过。');return;
+    }
     if(action==='panel-domain'){
         loadSettings();
         const access=job.result?.panel_route;
-        if(access?.origin)notice('HTTPS 已配置。通过新域名登录后，会自动关闭公网直连。',false,{
+        panelEditing=false;renderPanelDomain();
+        if(access?.origin)notice(access.protected?'新域名 HTTPS 已验证。':'HTTPS 已配置。通过新域名登录后，会自动关闭公网直连。',false,{
             kind:'success',persistent:true,detail:true,detailLabel:'打开新域名',
             onDetail:()=>location.assign(access.origin+'/#proxy')
         });
@@ -496,11 +500,18 @@ function paintTask(job){syncTokenJob(job);presentationJob=job;taskRunning=job.st
 async function poll(){if(refreshing||!csrf)return;const epoch=authEpoch;refreshing=true;try{const job=await api('task');paintTask(job);if(job.result)renderResult(job);if(Date.now()-lastStatus>15000)await refreshStatus();if(epoch!==authEpoch)return;if(job.id&&job.state!=='running'&&finishedTask!==job.id){finishedTask=job.id;await Promise.all([loadConfig(),refreshStatus()])}if(epoch!==authEpoch)return;if(job.state!=='running')taskOutcome(job);if($('advanced')?.open||consoleRunning)await pollConsole()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)refreshing=false}}
 $('refresh').onclick=async()=>{const epoch=authEpoch;await Promise.all([loadConfig(),refreshStatus(),poll()]);if(epoch!==authEpoch)return;notice('状态已刷新，未保存的表单已保留。')};$('refresh-files').onclick=loadConfig;
 let panelProxyOptions=[], panelProxyScanning=false, panelProxyChecked=false, panelDomainSubmitting=false, panelProxyMethod='';
+let panelRepair=null, panelEditing=false, panelRepairChecking=false;
 function renderPanelDomain(){
     const route=settingsSnapshot?.panel_route;
     const origins=(settingsSnapshot?.origins||[]).filter(origin=>typeof origin==='string'&&origin.startsWith('https://'));
     const address=route?.origin||settingsSnapshot?.preferred_origin||(origins.includes(location.origin)?location.origin:origins[0]);
     const verified=!!route?.origin;
+    const alternate=settingsSnapshot?.preferred_origin;
+    const alternateLink=$('panel-alternate-domain');
+    alternateLink.hidden=!alternate||alternate===address;
+    if(!alternateLink.hidden){
+        alternateLink.href=alternate;alternateLink.textContent='打开手动配置的域名 ↗';
+    }
     $('panel-domain-status').hidden=!address;
     $('panel-access-address').textContent=address||(settingsSnapshot?'尚未配置域名':'正在读取域名…');
     $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':verified?'HTTPS 已验证 · 公网直连仍可用':address?'已保存域名 · 反代状态未验证':'当前可通过 IP 和端口访问。';
@@ -516,22 +527,29 @@ function renderPanelDomain(){
     if(route?.origin&&!route.protected&&!canProtect)$('domains').textContent+='。从此域名登录后将自动限制公网直连。';
     const proxy=panelProxyOptions.find(item=>item.id===$('panel-proxy').value);
     if(!panelProxyOptions.length&&panelProxyMethod==='auto')panelProxyMethod='manual';
-    const method=panelProxyMethod||(!panelProxyOptions.length&&panelProxyChecked?'manual':'');
+    const repair=panelRepair;
+    const editing=!route?.proxy||panelEditing;
+    const method=editing?(panelProxyMethod||(!panelProxyOptions.length&&panelProxyChecked?'manual':'')):'';
     const automatic=method==='auto', manual=method==='manual';
-    const needsCredentials=automatic&&!!proxy&&!proxy.managed;
+    const needsCredentials=repair?!repair.managed:automatic&&!!proxy&&!proxy.managed;
+    $('panel-repair-actions').hidden=!route?.proxy;
+    $('panel-access-methods').hidden=!editing||!!repair;
+    $('panel-repair-check').disabled=taskRunning||panelUpdating||panelRepairChecking||panelDomainSubmitting;
+    $('panel-edit-config').disabled=taskRunning||panelUpdating||panelRepairChecking||panelDomainSubmitting;
+    $('domain').closest('label').hidden=!!repair;
+    $('domain').required=!repair;
     for(const [id,selected] of [['panel-method-auto',automatic],['panel-method-manual',manual]]){
         const button=$(id);button.className=selected?'primary':'secondary';
         button.setAttribute('aria-pressed',String(selected));
-        button.disabled=!!route?.protected;
     }
-    $('panel-method-auto').disabled=!!route?.protected||!panelProxyOptions.length;
-    $('domain-form').hidden=!method||!!route?.protected;
-    $('panel-proxy-field').hidden=!automatic||panelProxyOptions.length<2;
-    $('panel-proxy-help').hidden=!automatic;
+    $('panel-method-auto').disabled=!panelProxyOptions.length;
+    $('domain-form').hidden=!method&&!repair;
+    $('panel-proxy-field').hidden=!!repair||!automatic||panelProxyOptions.length<2;
+    $('panel-proxy-help').hidden=!!repair||!automatic;
     $('panel-proxy-help').textContent=panelProxyScanning?'正在检测反代…':proxy?.managed?'使用面板已保存的 NPM 账号。':proxy?'使用已有 NPM 账号。密码仅用于本次配置。':'请选择用于配置的 NPM。';
-    renderNpmLink('panel-open-npm',needsCredentials?proxy:null);
-    $('panel-manual-guide').hidden=!manual||!!route?.protected;
-    $('panel-manual-upstream').textContent='宿主机反代转发到 http://127.0.0.1:'+settingsSnapshot?.port+'。Docker 反代请使用容器可达的宿主机地址和同一端口。';
+    renderNpmLink('panel-open-npm',!repair&&needsCredentials?proxy:null);
+    $('panel-manual-guide').hidden=!manual||!!repair;
+    $('panel-manual-upstream').textContent=route?.protected?'当前限制下请沿用已有反代的转发目标。':'宿主机反代转发到 http://127.0.0.1:'+settingsSnapshot?.port+'。Docker 反代请使用容器可达的宿主机地址和同一端口。';
     const credentials=$('panel-npm-credentials');
     credentials.hidden=!needsCredentials;
     for(const input of credentials.querySelectorAll('input')){
@@ -539,8 +557,8 @@ function renderPanelDomain(){
         input.disabled=!needsCredentials;
     }
     const submit=$('configure-panel-domain');
-    submit.textContent=manual?'保存域名':'配置域名与 HTTPS';
-    submit.disabled=panelDomainSubmitting||!method||(automatic&&!proxy)||taskRunning||panelUpdating||panelProxyScanning||!!route?.protected;
+    submit.textContent=repair?'执行修复并验证':manual?'保存域名':'配置域名与 HTTPS';
+    submit.disabled=panelDomainSubmitting||(!repair&&(!method||(automatic&&!proxy)||panelProxyScanning))||taskRunning||panelUpdating;
     $('detect-panel-proxy').disabled=panelProxyScanning||taskRunning||panelUpdating;
     $('protect-panel-port').disabled=panelPortProtecting||taskRunning||panelUpdating;
 }
@@ -594,7 +612,7 @@ $('edit-vault-domain').onclick=()=>{
 };
 $('panel-domain-dialog').addEventListener('close',()=>{
     $('domain-form').elements.password.value='';
-    panelProxyMethod='';renderPanelDomain();
+    panelProxyMethod='';panelRepair=null;panelEditing=false;$('panel-repair-result').hidden=true;renderPanelDomain();
 });
 $('vault-domain-dialog').addEventListener('close',()=>{
     $('external-npm-form').elements.password.value='';
@@ -603,6 +621,28 @@ $('vault-domain-dialog').addEventListener('close',()=>{
 $('panel-method-auto').onclick=()=>{panelProxyMethod='auto';renderPanelDomain()};
 $('panel-method-manual').onclick=()=>{
     panelProxyMethod='manual';$('domain-form').elements.password.value='';renderPanelDomain();
+};
+$('panel-edit-config').onclick=()=>{
+    panelRepair=null;panelEditing=true;
+    $('panel-repair-result').hidden=true;
+    $('domain-form').elements.password.value='';
+    panelProxyMethod=panelProxyOptions.length?'auto':'manual';
+    renderPanelDomain();
+};
+$('panel-repair-check').onclick=async()=>{
+    panelRepairChecking=true;panelEditing=false;panelRepair=null;
+    $('domain-form').elements.password.value='';
+    const output=$('panel-repair-result');
+    output.hidden=false;output.textContent='正在检测当前 NPM 和 Docker 网桥…';
+    renderPanelDomain();
+    try{
+        const result=await api('domain/repair-check',{});
+        if(!$('panel-domain-dialog').open)return;
+        panelRepair=result;
+        output.textContent=(panelRepair.changed?'检测到反代网络变化。':'网桥与网关未变化，可验证当前 HTTPS。')+
+            ' 当前网关 '+panelRepair.gateway+'，网桥 '+panelRepair.interface+'。';
+    }catch(error){if(!isSessionTransition(error))output.textContent=error.message}
+    finally{panelRepairChecking=false;renderPanelDomain()}
 };
 $('edit-panel-domain').onclick=()=>{
     if(!$('domain').value){
@@ -622,16 +662,16 @@ $('domain-form').onsubmit=async event=>{
     if($('configure-panel-domain').disabled)return;
     panelDomainSubmitting=true;renderPanelDomain();
     try{
-        if(panelProxyMethod==='manual'||!panelProxyOptions.length){
+        if(!panelRepair&&(panelProxyMethod==='manual'||!panelProxyOptions.length)){
             await api('domain',{origin:$('domain').value.trim(),manual:true});
             await loadSettings();
             notice('域名已保存。配置反代和 HTTPS 后，可打开该地址验证。');
             return;
         }
-        const job=await api('domain/configure',formValues('domain-form'));
+        const job=await api(panelRepair?'domain/repair':'domain/configure',formValues('domain-form'));
         $('domain-form').elements.password.value='';
         trackTask(job);paintTask(job);
-        notice('正在配置面板域名和 HTTPS…',false,{kind:'loading'});
+        notice(panelRepair?'正在修复并验证 HTTPS…':'正在配置面板域名和 HTTPS…',false,{kind:'loading'});
         await poll();
     }catch(error){if(!isSessionTransition(error))notice(error.message,true)}
     finally{panelDomainSubmitting=false;renderPanelDomain()}

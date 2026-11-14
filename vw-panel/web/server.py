@@ -248,9 +248,8 @@ class Application:
                 origins.append(origin)
             config = dict(self.config, origins=origins)
             if manual:
-                if config.get('panel_route', {}).get('protected'):
-                    raise ValueError('请先恢复公网直连，再修改域名。')
-                config.pop('panel_route', None)
+                if not config.get('panel_route', {}).get('protected'):
+                    config.pop('panel_route', None)
                 config['preferred_origin'] = origin
             self.save_config(config)
         return origin
@@ -314,6 +313,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, {'error': '该域名尚未配置。请先使用 IP 登录，在「域名与反代」中添加域名。'})
         path = urlsplit(self.path).path
         challenge = self.app.domain_challenge
+        if not challenge and path.startswith('/_vw-panel-check/'):
+            try:
+                challenge = json.loads((self.app.state_dir / 'panel-repair-probe.json').read_text())
+            except (OSError, ValueError):
+                pass
         if challenge and self.headers.get('Host') == challenge[0] and path == '/_vw-panel-check/' + challenge[1]:
             return self.reply(200, challenge[2].encode(), 'text/plain; charset=utf-8')
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
@@ -487,10 +491,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,self.app.manager.remote_config(data.get('name')))
             if path == '/api/proxy/credentials':
                 return self.reply(200, self.app.manager.npm_credentials())
-            if path in ('/api/domain/configure', '/api/domain/protect'):
+            if path in ('/api/domain/repair-check', '/api/domain/repair', '/api/domain/configure', '/api/domain/protect'):
                 with self.app.operation_lock:
                     if self.app.updates.busy():
                         raise ValueError('面板正在升级，请等待完成。')
+                    if path.endswith('/repair-check'):
+                        return self.reply(200, panel_domain.repair_status(self.app))
                     if path.endswith('/protect'):
                         with self.app.manager.exclusive():
                             panel_domain.protect(self.app, origin)
@@ -499,8 +505,10 @@ class Handler(BaseHTTPRequestHandler):
                     if not all(isinstance(value, str) and len(value) <= 1024 and not any(ord(c) < 32 for c in value)
                                for value in payload.values()):
                         raise ValueError('域名或反代账号格式不正确。')
-                    panel_domain.normalize(payload['domain'])
-                    return self.reply(200, self.app.manager.start('panel-domain', payload, application=self.app))
+                    action = 'panel-domain-repair' if path.endswith('/repair') else 'panel-domain'
+                    if action == 'panel-domain':
+                        panel_domain.normalize(payload['domain'])
+                    return self.reply(200, self.app.manager.start(action, payload, application=self.app))
             if path == '/api/domain':
                 if not isinstance(data.get('origin'), str):
                     raise ValueError('请输入域名访问地址。')
@@ -542,7 +550,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Vaultwarden 网页管理面板')
-    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain', 'public', 'open-port', 'remove-port-rules'])
+    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain', 'public', 'open-port', 'remove-port-rules', 'repair-proxy'])
     parser.add_argument('--state-dir', type=Path, default=Path('/var/lib/vw-panel'))
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--host', default='0.0.0.0')
@@ -602,6 +610,24 @@ def main():
         config.pop('panel_route', None)
         app.save_config(config)
         print('面板直连端口限制已解除。')
+        return
+    if args.command == 'repair-proxy':
+        try:
+            with app.manager.exclusive():
+                result = panel_domain.repair_status(app)
+                print('NPM：%s；网桥：%s；网关：%s' % (result['proxy'], result['interface'], result['gateway']))
+                print('检测到网络变化。' if result['changed'] else '网桥和网关未变化，可以继续验证 HTTPS。')
+                if input('执行修复并验证 HTTPS？[y/N] ').strip().lower() != 'y':
+                    raise SystemExit(3)
+                data = {'email': '', 'password': ''}
+                if not result['managed']:
+                    data['email'] = input('NPM 管理邮箱：').strip()
+                    data['password'] = getpass.getpass('NPM 管理密码：')
+                app.manager.emit = print
+                panel_domain.repair(app, data)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise SystemExit(str(error))
+        print('修复完成，HTTPS 验证通过。')
         return
     if args.command == 'domain':
         try:

@@ -160,8 +160,6 @@ def configure(app, data):
     manager = app.manager
     before = app.config
     previous = before.get('panel_route')
-    if previous and previous.get('protected'):
-        raise ValueError('面板已启用域名专用访问。如需更改，请先用 sudo vwp public 恢复直连。')
     vault, _ = manager.paths()
     from manager import read_vars
     if urlsplit(read_vars(vault / 'vaultwarden.env').get('DOMAIN', '')).hostname == host:
@@ -182,6 +180,14 @@ def configure(app, data):
         proxy = options[0]
     address, gateway, interface = network_endpoint(proxy)
     port = before['port']
+    protected = bool(previous and previous.get('protected'))
+    if protected and (gateway, interface, port) != (previous['gateway'], previous['interface'], previous['port']):
+        raise ValueError('反代网络已变化，请先检测并修复反代，再修改域名。')
+    if previous and previous['origin'] == origin:
+        if proxy['name'] != previous['proxy']:
+            raise ValueError('同一域名已绑定另一台 NPM。请选择原 NPM，或使用其他域名。')
+        return repair(app, data)
+
     manager.emit('已检测到 NPM：' + proxy['name'])
     route = PanelNPM(manager, proxy, host, gateway, port, address, data['email'], data['password'])
     token = secrets.token_hex(24)
@@ -194,7 +200,7 @@ def configure(app, data):
         verify_https(host, token, proof)
         config = dict(app.config, panel_route={
             'origin': origin, 'gateway': gateway, 'interface': interface,
-            'proxy': proxy['name'], 'port': port, 'protected': False,
+            'proxy': proxy['name'], 'port': port, 'protected': protected,
         })
         app.save_config(config)
     except Exception:
@@ -202,8 +208,8 @@ def configure(app, data):
         raise
     finally:
         app.domain_challenge = None
-    manager.emit('HTTPS 验证通过。通过新域名登录后，将自动关闭公网直连。')
-    return {'origin': origin, 'proxy': proxy['name'], 'protected': False}
+    manager.emit('HTTPS 验证通过。' if protected else 'HTTPS 验证通过。通过新域名登录后，将自动关闭公网直连。')
+    return {'origin': origin, 'proxy': proxy['name'], 'protected': protected}
 
 
 
@@ -237,3 +243,99 @@ def protect(app, request_origin):
         raise
     finally:
         app.domain_challenge = None
+
+
+def repair_target(app):
+    route = app.config.get('panel_route', {})
+    if not route.get('proxy') or route.get('manual'):
+        raise ValueError('当前没有面板自动配置的 NPM 站点。')
+    choices = npm_options(detect_environment())
+    proxy = next((item for item in choices if item['name'] == route['proxy']), None)
+    if not proxy:
+        raise ValueError('未找到已配置的 NPM 实例，请检查容器是否运行。')
+    return route, proxy, network_endpoint(proxy)
+
+
+def repair_status(app):
+    route, proxy, (_, gateway, interface) = repair_target(app)
+    return {
+        'proxy': proxy['name'], 'managed': managed_npm(app.manager, proxy),
+        'gateway': gateway, 'interface': interface,
+        'changed': (gateway, interface, app.config['port']) !=
+                   (route['gateway'], route['interface'], route['port']),
+    }
+
+
+def repair(app, data):
+    from manager import write_private
+    route, proxy, (address, gateway, interface) = repair_target(app)
+    port = app.config['port']
+    host = normalize(route['origin'])
+    adapter = PanelNPM(app.manager, proxy, host, gateway, port, address, data['email'], data['password'])
+    state_path = adapter.folder / 'route-state.json'
+    previous_state = state_path.read_text() if state_path.exists() else None
+    if previous_state is None:
+        # Docker can issue a new container ID after a recreation. Recover only
+        # a unique prior record that matches the configured upstream.
+        matches = []
+        for path in (app.state_dir / 'panel-npm').glob('*/' + host + '/route-state.json'):
+            saved = json.loads(path.read_text())
+            if saved.get('domain') == host and saved.get('forward_host') == route['gateway'] and saved.get('forward_port') == route['port']:
+                matches.append(path)
+        if len(matches) != 1:
+            raise ValueError('无法确认原 NPM 站点的归属，请在 NPM 检查现有站点。')
+        saved = json.loads(matches[0].read_text())
+    else:
+        saved = json.loads(previous_state)
+    if (saved.get('domain'), saved.get('forward_host', route['gateway']), saved.get('forward_port', route['port'])) != (host, route['gateway'], route['port']):
+        raise ValueError('NPM 站点记录与当前面板配置不一致。')
+    token = adapter._npm_token()
+    host_id = saved.get('host_id')
+    if type(host_id) is not int or host_id <= 0:
+        raise ValueError('原 NPM 站点记录无效。')
+    path = f'nginx/proxy-hosts/{host_id}'
+    current = adapter._npm_request(path, token=token)
+    old = {'forward_host': route['gateway'], 'forward_port': route['port']}
+    if (not isinstance(current, dict) or current.get('domain_names') != [host] or current.get('forward_scheme') != 'http'
+            or any(current.get(key) != value for key, value in old.items())):
+        raise ValueError('NPM 中的站点与面板记录不一致，请检查现有站点。')
+    new = {'forward_host': gateway, 'forward_port': port}
+    token_path = app.state_dir / 'panel-repair-probe.json'
+    challenge = [host, secrets.token_hex(24), secrets.token_hex(24)]
+    write_private(token_path, json.dumps(challenge))
+    protected = route.get('protected')
+    firewall_changed = upstream_changed = False
+    try:
+        if protected:
+            firewall(port, gateway, interface)
+            firewall_changed = True
+            panel_access.sync(app.state_dir, port, gateway, interface)
+        if new != old:
+            upstream_changed = True
+            adapter._npm_request(path, new, token, method='PUT')
+        verify_https(*challenge)
+        write_private(state_path, json.dumps(dict(saved, **new)))
+        app.save_config(dict(app.config, panel_route=dict(route, gateway=gateway, interface=interface, port=port)))
+    except Exception as error:
+        rollback_failed = False
+        if upstream_changed:
+            try:
+                adapter._npm_request(path, old, token, method='PUT')
+            except (ValueError, OSError, subprocess.SubprocessError):
+                rollback_failed = True
+        if firewall_changed:
+            try:
+                firewall(route['port'], route['gateway'], route['interface'])
+                panel_access.sync(app.state_dir, route['port'], route['gateway'], route['interface'])
+            except (ValueError, OSError, subprocess.SubprocessError):
+                rollback_failed = True
+        if previous_state is None:
+            state_path.unlink(missing_ok=True)
+        else:
+            write_private(state_path, previous_state)
+        if rollback_failed:
+            raise ValueError('修复失败，部分规则无法恢复。请从 SSH 检查 NPM 和面板防火墙。') from error
+        raise
+    finally:
+        token_path.unlink(missing_ok=True)
+    return {'origin': route['origin'], 'proxy': proxy['name'], 'protected': bool(protected)}
