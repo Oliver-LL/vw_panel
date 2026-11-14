@@ -262,7 +262,10 @@ class ManagedProxyMixin:
     def configure_npm(self):
         from manager import write_private
         folder = self.proxy_folder();settings = self.proxy_settings();domain = settings['domain']
-        self.emit('正在连接 NPM 并配置密码库 HTTPS…')
+        label = getattr(self, 'route_label', '密码库')
+        forward_host = getattr(self, 'forward_host', 'vaultwarden')
+        forward_port = getattr(self, 'forward_port', 80)
+        self.emit('正在连接 NPM 并配置' + label + ' HTTPS…')
         token = self._npm_token()
         self.emit('NPM 登录已通过，正在读取站点与证书。')
         state_path = folder/'route-state.json'
@@ -270,6 +273,9 @@ class ManagedProxyMixin:
         hosts = self._npm_request('nginx/proxy-hosts', token=token)
         if not isinstance(hosts,list) or not all(isinstance(h,dict) for h in hosts):raise ValueError('NPM 站点列表格式不正确。')
         host = next((h for h in hosts if h.get('id')==state.get('host_id')), None)
+        if host and label == '面板' and (host.get('domain_names') != [domain] or host.get('forward_host') != state.get('forward_host', forward_host)
+                     or host.get('forward_port') != state.get('forward_port', forward_port)):
+            raise ValueError('已记录的 NPM 站点被修改，已保留当前站点。')
         if not host and any(domain in h.get('domain_names',[]) for h in hosts):
             raise ValueError('此域名已存在于 NPM，已保留其配置。请先在 NPM 确认现有站点。')
         certificates = self._npm_request('nginx/certificates', token=token)
@@ -288,7 +294,7 @@ class ManagedProxyMixin:
             certificate = self._npm_request('nginx/certificates', {'provider':'letsencrypt','domain_names':[domain],
                 'meta':{'dns_challenge':False}}, token, timeout=180)
         if not isinstance(certificate,dict) or not isinstance(certificate.get('id'),int) or certificate['id']<=0:raise ValueError('NPM 未返回有效证书。')
-        payload = {'domain_names':[domain], 'forward_scheme':'http','forward_host':'vaultwarden','forward_port':80,
+        payload = {'domain_names':[domain], 'forward_scheme':'http','forward_host':forward_host,'forward_port':forward_port,
             'certificate_id':certificate['id'],'ssl_forced':True,'allow_websocket_upgrade':True,'http2_support':True,
             'block_exploits':False,'caching_enabled':False,'access_list_id':0,'advanced_config':'','locations':[],'meta':{},
             'hsts_enabled':False,'hsts_subdomains':False}
@@ -297,7 +303,10 @@ class ManagedProxyMixin:
             host = self._npm_request('nginx/proxy-hosts/%s'%int(host['id']), payload, token, method='PUT')
         else:host = self._npm_request('nginx/proxy-hosts', payload, token)
         if not isinstance(host,dict) or not isinstance(host.get('id'),int) or host['id']<=0:raise ValueError('NPM 未返回有效站点。')
-        write_private(state_path,json.dumps({'host_id':host['id'],'certificate_id':certificate['id'],'domain':domain}))
+        state = {'host_id':host['id'],'certificate_id':certificate['id'],'domain':domain}
+        if label == '面板':
+            state['forward_host'], state['forward_port'] = forward_host, forward_port
+        write_private(state_path,json.dumps(state))
         if host.get('meta', {}).get('nginx_online') is False:raise ValueError('NPM 站点未能加载，请查看代理日志后重试。')
         self.emit('NPM 站点与 HTTPS 已配置，后续证书由 NPM 自动续期。')
 

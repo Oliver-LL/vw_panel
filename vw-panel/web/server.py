@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 from manager import Manager, read_vars
 from updater import Updates
 from session_store import SessionStore
+import panel_domain
 from proxy_environment import detect_environment, log_sources
 
 SCRIPT = ROOT.parent / 'vw_web.sh'
@@ -181,6 +182,7 @@ class Application:
         self.operation_lock = threading.Lock()
         self.manager = Manager(self.state_dir)
         self.updates = Updates(self.state_dir)
+        self.domain_challenge = None
 
     def allowed_origin(self, value):
         try:
@@ -227,7 +229,13 @@ class Application:
             csrf = self.session_store.auth(token)
             return (token, csrf) if csrf else None
 
+    def save_config(self, config):
+        atomic_json(self.config_path, config)
+        self.config = config
+
     def domain(self, origin):
+        if isinstance(origin, str) and '://' not in origin:
+            origin = 'https://' + panel_domain.normalize(origin)
         origin = valid_origin(origin)
         if urlsplit(origin).scheme != 'https':
             raise ValueError('域名反代地址请使用 HTTPS。')
@@ -238,8 +246,7 @@ class Application:
                     raise ValueError('最多配置 10 个域名访问地址。')
                 origins.append(origin)
             config = dict(self.config, origins=origins)
-            atomic_json(self.config_path, config)
-            self.config = config
+            self.save_config(config)
         return origin
 
 
@@ -298,8 +305,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self.app.allowed_host(self.headers.get('Host', '')):
-            return self.reply(403, {'error': '该域名尚未配置。请先使用 IP 登录，在面板设置中添加域名。'})
+            return self.reply(403, {'error': '该域名尚未配置。请先使用 IP 登录，在「域名与反代」中添加域名。'})
         path = urlsplit(self.path).path
+        challenge = self.app.domain_challenge
+        if challenge and self.headers.get('Host') == challenge[0] and path == '/_vw-panel-check/' + challenge[1]:
+            return self.reply(200, challenge[2].encode(), 'text/plain; charset=utf-8')
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if path in assets:
             name, mime = assets[path]
@@ -319,7 +329,29 @@ class Handler(BaseHTTPRequestHandler):
             environment['log_sources']=log_sources(environment,read_vars(self.app.manager.memory),(self.app.manager.paths()[0]/'docker-compose.yml').exists())
             return self.reply(200, environment)
         if path == '/api/settings':
-            return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', [])})
+            route = self.app.config.get('panel_route', {})
+            return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', []),
+                                    'panel_route': {k: route[k] for k in ('origin', 'proxy', 'protected') if k in route}})
+        if path == '/api/domain/proxies':
+            environment = detect_environment()
+            options = panel_domain.npm_options(environment)
+            proxies = [{'id': item['id'], 'name': item['name'], 'managed': panel_domain.managed_npm(self.app.manager, item)}
+                       for item in options]
+            automatic_ids = {item['id'] for item in proxies}
+            detected = [
+                {**{key: item.get(key) for key in ('name', 'kind', 'source', 'running')},
+                 'automatic': item['id'] in automatic_ids}
+                for item in environment.get('proxies', [])
+            ]
+            message = ''
+            if not environment.get('host_checked') or not environment.get('complete') or (
+                environment.get('docker_installed') and not environment.get('available')
+            ):
+                message = '部分服务器环境未能读取，可重新检测。'
+            elif not detected and environment.get('busy_ports'):
+                message = '80 或 443 端口已有服务占用，暂未识别出反代类型。'
+            return self.reply(200, {'proxies': proxies, 'detected': detected, 'message': message})
+
         if path == '/api/backups/download':
             try:
                 query=parse_qs(urlsplit(self.path).query)
@@ -447,10 +479,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,self.app.manager.remote_config(data.get('name')))
             if path == '/api/proxy/credentials':
                 return self.reply(200, self.app.manager.npm_credentials())
+            if path in ('/api/domain/configure', '/api/domain/protect'):
+                with self.app.operation_lock:
+                    if self.app.updates.busy():
+                        raise ValueError('面板正在升级，请等待完成。')
+                    if path.endswith('/protect'):
+                        with self.app.manager.exclusive():
+                            panel_domain.protect(self.app, origin)
+                        return self.reply(200, {'ok': True})
+                    payload = {key: data.get(key, '') for key in ('domain', 'proxy', 'email', 'password')}
+                    if not all(isinstance(value, str) and len(value) <= 1024 and not any(ord(c) < 32 for c in value)
+                               for value in payload.values()):
+                        raise ValueError('域名或反代账号格式不正确。')
+                    panel_domain.normalize(payload['domain'])
+                    return self.reply(200, self.app.manager.start('panel-domain', payload, application=self.app))
             if path == '/api/domain':
                 if not isinstance(data.get('origin'), str):
                     raise ValueError('请输入域名访问地址。')
-                return self.reply(200, {'origin': self.app.domain(data['origin'])})
+                with self.app.operation_lock, self.app.manager.exclusive():
+                    return self.reply(200, {'origin': self.app.domain(data['origin'])})
             if path.startswith('/api/config/') or path == '/api/task/start':
                 with self.app.operation_lock:
                     if self.app.updates.busy():raise ValueError('面板正在升级，请等待完成。')
@@ -487,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Vaultwarden 网页管理面板')
-    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain'])
+    parser.add_argument('command', choices=['configure', 'serve', 'reset-password', 'domain', 'public'])
     parser.add_argument('--state-dir', type=Path, default=Path('/var/lib/vw-panel'))
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--host', default='0.0.0.0')
@@ -521,6 +568,13 @@ def main():
     if not config_path.exists() or not credentials.exists():
         raise SystemExit('请先运行安装器完成初始化。')
     app = Application(args.state_dir)
+    if args.command == 'public':
+        panel_domain.firewall()
+        config = dict(app.config)
+        config.pop('panel_route', None)
+        app.save_config(config)
+        print('面板直连端口限制已解除。')
+        return
     if args.command == 'domain':
         try:
             print('已允许域名访问：' + app.domain(args.origin))
@@ -532,6 +586,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit('面板已在运行。')
+    route = app.config.get('panel_route', {})
+    if route.get('protected'):
+        panel_domain.firewall(route['port'], route['gateway'], route['interface'])
     httpd = ThreadingHTTPServer((app.config['host'], app.config['port']), Handler)
     httpd.daemon_threads = True
     httpd.app = app

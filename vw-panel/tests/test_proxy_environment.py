@@ -52,6 +52,13 @@ class ProxyEnvironmentTests(unittest.TestCase):
             result = proxy.detect_environment()
         self.assertFalse(result['available']);self.assertIn('无读取权限', result['message'])
 
+    def test_detects_known_proxy_images_without_published_ports(self):
+        for image, kind in [('caddy:2', 'Caddy'), ('nginx:stable', 'Nginx / OpenResty'),
+                            ('openresty/openresty:alpine', 'Nginx / OpenResty'),
+                            ('traefik:v3', 'Traefik'), ('haproxy:3', 'HAProxy'), ('httpd:2', 'Apache')]:
+            with self.subTest(image=image):
+                self.assertEqual(proxy.proxy_kind({'Image': image, 'Ports': '80/tcp'}), kind)
+
     def test_missing_builtin_internal_and_unattachable_networks_rejected(self):
         for name in ('host', 'none', 'bridge', 'x; echo secret'):
             with self.subTest(name=name), patch.object(proxy, 'docker') as docker, self.assertRaises(ValueError):

@@ -171,3 +171,6 @@ form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
 .storage-editor-fields{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:22px}.storage-type-status{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin:-10px 0 16px}.storage-type-status button{font-size:11px;padding:4px 8px}.storage-advanced{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}.storage-advanced>summary{color:var(--muted);font-size:12px;cursor:pointer}.storage-advanced .toggle{margin-top:8px}#storage-wizard #wizard-start-form>.form-grid{margin-top:0}#preset-fields{margin-top:0}#storage-dialog .workspace-dialog-header p{font-size:12px}@media(max-width:760px){.storage-editor-fields{grid-template-columns:1fr;gap:16px;margin-bottom:18px}}
 
 #wizard-start-form>.button-row{justify-content:flex-end;margin-top:20px}
+
+.detected-proxies{list-style:none;padding:0;margin:12px 0 0}
+.detected-proxies li{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}

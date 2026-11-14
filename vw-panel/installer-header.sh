@@ -192,8 +192,18 @@ fi
 local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo '================ 安装完成 ================'
-echo "网页地址：http://${local_ip:-服务器IP}:$panel_port"
-echo "公网访问：http://你的服务器公网IP:$panel_port"
+python3 - "$local_ip" <<'PYINFO'
+import json, sys
+config = json.load(open('/var/lib/vw-panel/panel.json'))
+route = config.get('panel_route', {})
+if route.get('origin'):
+    print('面板域名：' + route['origin'])
+if route.get('protected'):
+    print('公网直连已限制。需要恢复时执行 sudo vwp public。')
+else:
+    print('网页地址：http://%s:%s' % (sys.argv[1] or '服务器IP', config['port']))
+    print('若无法访问，请检查云安全组及服务器防火墙。')
+PYINFO
 if [[ -s "$bootstrap_secret" ]]; then
     printf '管理员密码：'; cat "$bootstrap_secret"; echo
     echo '请保存此密码，安装完成后不会在服务器保存密码原文。'
@@ -205,7 +215,6 @@ echo "面板端口：$panel_port"
 echo '终端管理菜单：sudo vwp'
 if [[ "$edition" == full ]]; then echo '原始 Bash 脚本：sudo vwp original'; fi
 echo '卸载网页面板：sudo vwp uninstall（保留密码库与备份）'
-echo "若无法访问，请在云安全组及服务器防火墙放行 TCP $panel_port。"
-echo '后续绑定域名：网页 → 面板设置，或 sudo vwp domain https://你的面板域名'
+echo '后续绑定域名：网页 → 域名与反代'
 echo '面板已设置开机启动。'
 exit 0

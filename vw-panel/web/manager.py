@@ -470,16 +470,20 @@ class Manager(ManagedProxyMixin, OperationsMixin):
                     result['output'] = stream.read().decode('utf-8', 'replace')
             return result
 
-    def start(self, action, data):
+    def start(self, action, data, application=None):
         titles = {'deploy': '部署 / 应用配置', 'stop': '停止密码库', 'upgrade': '升级密码库',
                   'backup-start': '应用备份配置', 'backup-stop': '停止自动备份', 'backup-now': '立即备份',
                   'admin-token': '加密管理口令', 'logs': '读取服务日志', 'backup-logs': '读取备份日志', 'install-docker': '安装 Docker', 'remote-save': '连接 WebDAV 备份存储'}
         titles.update(EXTRA_TASKS)
+        if application is not None:
+            titles['panel-domain'] = '配置面板域名'
         if not isinstance(action, str) or action not in titles:
             raise ValueError('未知操作。')
         if action in ('stop', 'upgrade', 'backup-stop', 'install-docker') and data.get('confirmed') is not True:
             raise ValueError('请确认此操作。')
-        if action in EXTRA_TASKS:
+        if action == 'panel-domain':
+            password = data
+        elif action in EXTRA_TASKS:
             password=self.prepare_extended(action,data)
         elif action == 'admin-token':
             password = secret_text(data.get('password', ''), '管理口令')
@@ -508,7 +512,7 @@ class Manager(ManagedProxyMixin, OperationsMixin):
             self.logfile = tempfile.NamedTemporaryFile(mode='w+b', delete=False, dir=self.state, prefix='panel-task-', suffix='.log')
             self.job = {'id': secrets.token_hex(8), 'state': 'running', 'title': titles[action],
                         'output': '', 'error': '', 'action': action, 'started': time.time()}
-            self.task_worker=threading.Thread(target=self._run, args=(action, password, guard), daemon=True)
+            self.task_worker=threading.Thread(target=self._run, args=(action, password, guard, application), daemon=True)
             self.task_worker_job=self.job['id']
             try:self.task_worker.start()
             except Exception:
@@ -584,12 +588,17 @@ class Manager(ManagedProxyMixin, OperationsMixin):
         if result.strip() != 'true':
             raise ValueError('容器未保持运行，请查看服务日志。')
 
-    def _run(self, action, password, guard):
+    def _run(self, action, password, guard, application=None):
         before = {}; succeeded = False
         try:
             before = {scope: self.revision(scope) for scope in ('core', 'backup')}
             app, backup = self.paths()
             memory = read_vars(self.memory)
+            if action == 'panel-domain':
+                from panel_domain import configure
+                self.job['result'] = {'panel_route': configure(application, password)}
+                succeeded = True
+                return
             if action in EXTRA_TASKS:
                 self.run_extended(action,password)
                 if action=='upgrade-backup':self.note_applied('backup')

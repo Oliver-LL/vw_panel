@@ -35,6 +35,9 @@ menu() {
         echo "$uninstall_option) 卸载网页面板（保留密码库与备份）"
         echo "$check_option) 检查面板更新"
         echo "$update_option) 升级网页面板"
+        if [[ -f "$panel_state/panel.json" ]] && grep -q '"protected": true' "$panel_state/panel.json"; then
+            echo ' p) 恢复面板 IP 直连'
+        fi
         echo ' 0) 退出'
         read -r -p "请选择 [0-$update_option]: " option || return
         case "$option" in
@@ -46,13 +49,14 @@ menu() {
             "$update_option") "$0" update || true;;
             10) "$0" bash;;
             11) "$0" original;;
+            p) "$0" public || true;;
             0|q|Q) return;;
             *) echo '请选择正确的编号。';;
         esac
     done
 }
 case "${1:-menu}" in
-    original|bash|password|port|domain|uninstall|restart|stop|start)
+    original|bash|password|port|domain|public|uninstall|restart|stop|start)
         need_root
         if [[ -f "$panel_root/current/web/updater.py" ]]; then
             python3 "$panel_root/current/web/updater.py" busy --state-dir "$panel_state"
@@ -85,6 +89,8 @@ case "${1:-menu}" in
         python3 - "${2:-}" "$panel_state/panel.json" <<'PY'
 import json,socket,sys,os,secrets
 p=sys.argv[2]; c=json.load(open(p))
+if c.get('panel_route', {}).get('protected'):
+    raise SystemExit('请先执行 sudo vwp public，再修改端口并重新配置域名。')
 try:
     if sys.argv[1]:
         port=int(sys.argv[1]); assert 1024 <= port <= 65535
@@ -108,6 +114,11 @@ PY
         exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '有任务正在执行，请结束后再修改。'; exit 1; }
         python3 "$panel_root/current/web/server.py" domain --state-dir "$panel_state" --origin "$2"
         systemctl restart vw-panel;;
+    public)
+        need_root
+        exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '有任务正在执行，请结束后再操作。'; exit 1; }
+        python3 "$panel_root/current/web/server.py" public --state-dir "$panel_state"
+        systemctl restart vw-panel;;
     uninstall)
         need_root
         echo '仅卸载网页面板：服务、程序与终端菜单。密码库、Caddy、备份和 Docker 均保留。'
@@ -116,6 +127,9 @@ PY
         read -r -p '是否同时删除面板密码和域名设置？[y/N]: ' purge
         exec 8>"$panel_state/install.lock"; flock -n 8 || { echo '安装器正在运行，请稍后操作。'; exit 1; }
         exec 9>"$panel_state/operation.lock"; flock -n 9 || { echo '网页任务正在运行，请结束后再卸载。'; exit 1; }
+        if [[ -f "$panel_root/current/web/panel_domain.py" ]]; then
+            python3 "$panel_root/current/web/server.py" public --state-dir "$panel_state"
+        fi
         systemctl disable --now vw-panel
         rm -f /etc/systemd/system/vw-panel.service
         systemctl daemon-reload
@@ -132,7 +146,10 @@ PY
 import json,sys,socket
 c=json.load(open(sys.argv[1]))
 print('面板端口：',c['port'])
-print('访问地址：http://服务器公网IP:'+str(c['port']))
+if c.get('panel_route', {}).get('protected'):
+    print('公网直连已限制。需要恢复时执行 sudo vwp public。')
+else:
+    print('访问地址：http://服务器公网IP:'+str(c['port']))
 for origin in c.get('origins',[]):print('域名访问：'+origin)
 print('密码仅在安装或重设时显示，忘记后可执行 sudo vwp password。')
 PY

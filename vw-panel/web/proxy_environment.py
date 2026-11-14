@@ -57,12 +57,14 @@ def proxy_kind(row):
     name = str(row.get('Names', '')).lower()
     if 'nginx-proxy-manager' in image or name in ('npm', 'nginx-proxy-manager'):
         return 'Nginx Proxy Manager'
-    if image.rsplit('/', 1)[-1] == 'caddy':
-        return 'Caddy'
-    if image.rsplit('/', 1)[-1] == 'traefik':
-        return 'Traefik'
+    image_name = image.rsplit('/', 1)[-1]
+    known = {'caddy': 'Caddy', 'traefik': 'Traefik', 'nginx': 'Nginx / OpenResty',
+             'openresty': 'Nginx / OpenResty', 'haproxy': 'HAProxy', 'httpd': 'Apache',
+             'apache': 'Apache', 'swag': 'Nginx / OpenResty'}
+    if image_name in known:
+        return known[image_name]
     if re.search(r':(?:80|443)->', str(row.get('Ports', ''))):
-        return 'Nginx / OpenResty' if any(x in image for x in ('nginx', 'openresty')) else '占用 Web 端口的容器'
+        return '占用 Web 端口的容器'
     return ''
 
 
@@ -119,7 +121,7 @@ def detect_environment():
             admin=next((p for p in (info.get('ports') or {}).get('81/tcp',[]) or [] if str(p.get('HostPort','')).isdigit()),{})
             result['proxies'].append({'id': container, 'name': str(info.get('name', '')).lstrip('/'),
                                       'kind': proxy_kind(row), 'source':'docker', 'running': info.get('running') is True,
-                                      'networks': usable,'admin_port':int(admin['HostPort']) if admin else None,'admin_local':admin.get('HostIp') in ('127.0.0.1','::1')})
+                                      'networks': usable, 'https_published': any(str(p.get('HostPort')) == '443' for p in (info.get('ports') or {}).get('443/tcp') or []),'admin_port':int(admin['HostPort']) if admin else None,'admin_local':admin.get('HostIp') in ('127.0.0.1','::1')})
         if not result['complete']:
             result['message'] = '部分容器信息未能读取，请重新检测；本次不会自动选择网络。'
     except FileNotFoundError:
