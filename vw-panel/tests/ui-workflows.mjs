@@ -33,8 +33,8 @@ if(!await run(`$('panel-access-state').textContent.includes('未验证')&&$('ope
 await shot('domain-access',1440,1000);await shot('domain-access-mobile',390,900);
 await run(`$('edit-panel-domain').click()`);
 await waitFor(`$('panel-domain-dialog').open`);
-if(!await run(`$('domain').value==='saved-panel.example.com'&&$('panel-npm-credentials').hidden&&!$('use-external-panel-npm').hidden&&$('configure-panel-domain').disabled`))throw Error('Legacy domain or external credential disclosure is incorrect');
-await run(`$('use-external-panel-npm').click()`);
+if(!await run(`$('domain').value==='saved-panel.example.com'&&$('panel-npm-credentials').hidden&&!$('panel-method-auto').disabled&&$('configure-panel-domain').disabled`))throw Error('Legacy domain or external credential disclosure is incorrect');
+await run(`$('panel-method-auto').click()`);
 if(!await run(`(()=>{const field=$('domain');field.value='panel.example.com';return field.checkValidity()&&!$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled&&$('protect-panel-port').hidden})()`))throw Error('External NPM credentials cannot be provided on demand');
 await shot('domain-panel-editor',1440,1000);
 await run(`$('panel-domain-dialog').close();$('edit-vault-domain').click()`);
@@ -43,13 +43,17 @@ await run(`$('vault-domain-dialog').close();document.querySelector('.domain-prox
 managedPanelNpm=true;
 await run(`$('detect-panel-proxy').click()`);
 await waitFor(`panelProxyOptions[0]?.managed`);
-await run(`$('edit-panel-domain').click()`);
-if(!await run(`$('panel-npm-credentials').hidden&&$('use-external-panel-npm').hidden&&!$('configure-panel-domain').disabled`))throw Error('Panel-managed NPM still asks for credentials');
+await run(`$('edit-panel-domain').click();$('panel-method-auto').click()`);
+if(!await run(`$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled`))throw Error('Panel-managed NPM still asks for credentials');
 await shot('domain-panel-managed',1440,1000);
+await run(`$('panel-method-manual').click()`);
+if(!await run(`!$('panel-manual-guide').hidden&&$('panel-npm-credentials').hidden&&$('configure-panel-domain').textContent==='保存域名'`))throw Error('Manual panel mode is not usable');
+if(!await run(`(()=>{renderNpmLink('panel-open-npm',{admin_bind:'192.168.1.10',admin_port:8181});if($('panel-open-npm').href!=='http://192.168.1.10:8181/')return false;renderNpmLink('panel-open-npm',{admin_bind:'127.0.0.1',admin_port:81});return $('panel-open-npm').hidden&&!$('panel-open-npm').hasAttribute('href')})()`))throw Error('NPM URL ignores actual port binding');
+
 nonNpmOnly=true;
 await run(`$('panel-domain-dialog').close();document.querySelector('.domain-proxy-summary').open=true;$('detect-panel-proxy').click()`);
 await waitFor(`$('detected-proxies').textContent.includes('Caddy')&&$('detected-proxies').textContent.includes('Nginx')`);
-if(!await run(`$('configure-panel-domain').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('dialog').id==='panel-domain-dialog'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
+if(!await run(`$('panel-method-auto').disabled&&!$('configure-panel-domain').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('dialog').id==='panel-domain-dialog'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
 
 
 await run(`location.hash='remote'`);await sleep(150);

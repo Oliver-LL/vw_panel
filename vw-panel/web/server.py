@@ -233,7 +233,7 @@ class Application:
         atomic_json(self.config_path, config)
         self.config = config
 
-    def domain(self, origin):
+    def domain(self, origin, manual=False):
         if isinstance(origin, str) and '://' not in origin:
             origin = 'https://' + panel_domain.normalize(origin)
         origin = valid_origin(origin)
@@ -246,6 +246,11 @@ class Application:
                     raise ValueError('最多配置 10 个域名访问地址。')
                 origins.append(origin)
             config = dict(self.config, origins=origins)
+            if manual:
+                if config.get('panel_route', {}).get('protected'):
+                    raise ValueError('请先恢复公网直连，再修改域名。')
+                config.pop('panel_route', None)
+                config['preferred_origin'] = origin
             self.save_config(config)
         return origin
 
@@ -331,11 +336,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/settings':
             route = self.app.config.get('panel_route', {})
             return self.reply(200, {'port': self.app.config['port'], 'origins': self.app.config.get('origins', []),
+                                    'preferred_origin': self.app.config.get('preferred_origin'),
                                     'panel_route': {k: route[k] for k in ('origin', 'proxy', 'protected') if k in route}})
         if path == '/api/domain/proxies':
             environment = detect_environment()
             options = panel_domain.npm_options(environment)
-            proxies = [{'id': item['id'], 'name': item['name'], 'managed': panel_domain.managed_npm(self.app.manager, item)}
+            proxies = [{'id': item['id'], 'name': item['name'], 'managed': panel_domain.managed_npm(self.app.manager, item),
+                        **{key: item.get(key) for key in ('admin_port', 'admin_bind', 'admin_local')}}
                        for item in options]
             automatic_ids = {item['id'] for item in proxies}
             detected = [
@@ -497,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data.get('origin'), str):
                     raise ValueError('请输入域名访问地址。')
                 with self.app.operation_lock, self.app.manager.exclusive():
-                    return self.reply(200, {'origin': self.app.domain(data['origin'])})
+                    return self.reply(200, {'origin': self.app.domain(data['origin'], manual=data.get('manual') is True)})
             if path.startswith('/api/config/') or path == '/api/task/start':
                 with self.app.operation_lock:
                     if self.app.updates.busy():raise ValueError('面板正在升级，请等待完成。')

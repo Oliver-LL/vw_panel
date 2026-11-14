@@ -121,7 +121,7 @@ def detect_environment():
             admin=next((p for p in (info.get('ports') or {}).get('81/tcp',[]) or [] if str(p.get('HostPort','')).isdigit()),{})
             result['proxies'].append({'id': container, 'name': str(info.get('name', '')).lstrip('/'),
                                       'kind': proxy_kind(row), 'source':'docker', 'running': info.get('running') is True,
-                                      'networks': usable, 'https_published': any(str(p.get('HostPort')) == '443' for p in (info.get('ports') or {}).get('443/tcp') or []),'admin_port':int(admin['HostPort']) if admin else None,'admin_local':admin.get('HostIp') in ('127.0.0.1','::1')})
+                                      'networks': usable, 'https_published': any(str(p.get('HostPort')) == '443' for p in (info.get('ports') or {}).get('443/tcp') or []),'admin_port':int(admin['HostPort']) if admin else None,'admin_bind': admin.get('HostIp', ''), 'admin_local':admin.get('HostIp') in ('127.0.0.1','::1')})
         if not result['complete']:
             result['message'] = '部分容器信息未能读取，请重新检测；本次不会自动选择网络。'
     except FileNotFoundError:
