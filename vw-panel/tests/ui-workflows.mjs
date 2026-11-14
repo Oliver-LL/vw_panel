@@ -37,8 +37,11 @@ if(!await run(`$('domain').value==='saved-panel.example.com'&&$('panel-npm-crede
 await run(`$('panel-method-auto').click()`);
 if(!await run(`(()=>{const field=$('domain');field.value='panel.example.com';return field.checkValidity()&&!$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled&&$('protect-panel-port').hidden})()`))throw Error('External NPM credentials cannot be provided on demand');
 await shot('domain-panel-editor',1440,1000);
-await run(`$('panel-domain-dialog').close();$('edit-vault-domain').click()`);
-await waitFor(`$('vault-domain-dialog').open`);
+await run(`$('panel-domain-dialog').close();const core=$('core-form');core.elements.mode.add(new Option('External','docker_ext'));core.elements.mode.value='docker_ext';renderExternalProxyGuide();$('external-method-manual').click()`);
+await waitFor(`$('vault-domain-dialog').open&&!$('external-manual-body').hidden`);
+if(!await run(`!$('vault-domain-dialog').contains($('external-method-manual'))&&$('external-npm-auto').hidden`))throw Error('Vault manual action still opens a menu');
+await run(`$('vault-domain-dialog').close();proxyEnvironment={proxies:[{id:'a'.repeat(12),kind:'Nginx Proxy Manager',name:'npm',running:true,networks:[$('core-form').elements.network.value]}]};renderExternalProxyGuide();$('external-method-auto').click()`);
+await waitFor(`$('vault-domain-dialog').open&&!$('external-npm-auto').hidden&&$('external-manual-body').hidden`);
 await run(`$('vault-domain-dialog').close();document.querySelector('.domain-proxy-summary').open=true`);
 managedPanelNpm=true;
 await run(`$('detect-panel-proxy').click()`);
@@ -46,12 +49,12 @@ await waitFor(`panelProxyOptions[0]?.managed`);
 await run(`$('edit-panel-domain').click();$('panel-method-auto').click()`);
 if(!await run(`$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled`))throw Error('Panel-managed NPM still asks for credentials');
 await shot('domain-panel-managed',1440,1000);
-await run(`settingsSnapshot.panel_route={origin:'https://saved-panel.example.com',proxy:'my-npm',protected:true};panelEditing=false;renderPanelDomain()`);
-if(!await run(`!$('panel-repair-actions').hidden&&$('domain-form').hidden&&!$('panel-domain-dialog').textContent.includes('打开 HTTPS 面板')`))throw Error('Protected route lacks repair and edit controls');
+await run(`$('panel-domain-dialog').close();settingsSnapshot.panel_route={origin:'https://saved-panel.example.com',proxy:'my-npm',protected:true};renderPanelDomain()`);
+if(!await run(`!$('panel-repair-check').hidden&&!$('panel-domain-dialog').open&&$('panel-repair-check').closest('.domain-access-card')&&$('edit-panel-domain').textContent==='修改配置'`))throw Error('Panel actions are not directly accessible from the card');
 await run(`$('panel-repair-check').click()`);
 await waitFor(`$('panel-repair-result').textContent.includes('172.21.0.1')`);
-if(!await run(`!$('domain-form').hidden&&$('panel-npm-credentials').hidden&&$('configure-panel-domain').textContent==='执行修复并验证'`))throw Error('Repair preview is not actionable');
-await run(`$('panel-domain-back').click();$('panel-edit-config').click()`);
+if(!await run(`!$('domain-form').hidden&&$('panel-npm-credentials').hidden&&$('panel-domain-dialog').open&&$('configure-panel-domain').textContent==='执行修复并验证'`))throw Error('Repair preview is not actionable');
+await run(`$('panel-domain-dialog').close()`);await sleep(60);await run(`$('edit-panel-domain').click()`);
 if(!await run(`!$('domain-form').hidden&&!$('configure-panel-domain').disabled`))throw Error('Protected route still cannot be edited');
 await run(`delete settingsSnapshot.panel_route;renderPanelDomain()`);
 
@@ -62,7 +65,7 @@ if(!await run(`(()=>{renderNpmLink('panel-open-npm',{admin_bind:'192.168.1.10',a
 nonNpmOnly=true;
 await run(`$('panel-domain-dialog').close();document.querySelector('.domain-proxy-summary').open=true;$('detect-panel-proxy').click()`);
 await waitFor(`$('detected-proxies').textContent.includes('Caddy')&&$('detected-proxies').textContent.includes('Nginx')`);
-if(!await run(`$('panel-method-auto').disabled&&!$('configure-panel-domain').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('dialog').id==='panel-domain-dialog'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
+if(!await run(`$('panel-method-auto').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('dialog').id==='panel-domain-dialog'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
 
 
 await run(`location.hash='remote'`);await sleep(150);

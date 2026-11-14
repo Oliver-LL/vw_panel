@@ -197,21 +197,14 @@ form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
 .domain-dialog .workspace-dialog-body>.hint{margin:0 0 20px}
 .domain-dialog #panel-npm-credentials{margin-top:16px}
 .domain-dialog #panel-proxy-help{font-size:12px;margin:12px 0 0}
-.domain-vault-settings{margin-bottom:16px}
 @media(max-width:760px){
   .domain-access-grid{grid-template-columns:1fr}
   .domain-access-card{padding:18px}
   .domain-dialog .form-grid{grid-template-columns:1fr}
 }
 
-.domain-vault-settings{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.vault-route-options{border-top:1px solid var(--line);padding-top:16px}
-.vault-route-options .external-methods{margin:0}
-.vault-route-options #external-npm-auto,.vault-route-options .external-manual{margin-top:16px}
 #panel-open-npm,#vault-auto-open-npm{display:inline-block;margin:8px 0}
 #panel-manual-guide{margin-top:16px}
 #domain-form .form-grid:has(#panel-proxy-field[hidden]){grid-template-columns:1fr}
 
-#panel-repair-actions{margin:0}
-#panel-domain-back{margin:0 0 12px;padding-left:0}
 #panel-repair-result:not([hidden]){margin:0 0 16px}
