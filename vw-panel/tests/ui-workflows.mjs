@@ -47,11 +47,11 @@ await run(`$('edit-panel-domain').click();$('panel-method-auto').click()`);
 if(!await run(`$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled`))throw Error('Panel-managed NPM still asks for credentials');
 await shot('domain-panel-managed',1440,1000);
 await run(`settingsSnapshot.panel_route={origin:'https://saved-panel.example.com',proxy:'my-npm',protected:true};panelEditing=false;renderPanelDomain()`);
-if(!await run(`!$('panel-repair-actions').hidden&&$('domain-form').hidden`))throw Error('Protected route lacks repair and edit controls');
+if(!await run(`!$('panel-repair-actions').hidden&&$('domain-form').hidden&&!$('panel-domain-dialog').textContent.includes('打开 HTTPS 面板')`))throw Error('Protected route lacks repair and edit controls');
 await run(`$('panel-repair-check').click()`);
 await waitFor(`$('panel-repair-result').textContent.includes('172.21.0.1')`);
 if(!await run(`!$('domain-form').hidden&&$('panel-npm-credentials').hidden&&$('configure-panel-domain').textContent==='执行修复并验证'`))throw Error('Repair preview is not actionable');
-await run(`$('panel-edit-config').click()`);
+await run(`$('panel-domain-back').click();$('panel-edit-config').click()`);
 if(!await run(`!$('domain-form').hidden&&!$('configure-panel-domain').disabled`))throw Error('Protected route still cannot be edited');
 await run(`delete settingsSnapshot.panel_route;renderPanelDomain()`);
 

@@ -43,7 +43,7 @@ let csrf='', timer=null, refreshing=false, taskRunning=false, currentTask='', fi
 let cursor=0,generation='',raw='',consoleRunning=false,hiddenInput=false;
 const dirty=new Set();
 let tokenState={id:'',phase:'',message:''},tokenStarting=false;
-let externalProxyMethod='',externalProxyEditing=false;
+let externalProxyMethod='';
 let authEpoch=0,authPhase='checking',authController=new AbortController();
 const activeUploads=new Set();
 function sessionChanged(){const error=new Error('');error.name='SessionChanged';return error}
@@ -51,7 +51,7 @@ function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
     dismissActionDialog();
     clearStorageDraft();presetSubmitted=null;
-    trackedTask=null;externalProxyMethod='';externalProxyEditing=false;$('external-npm-form').reset();delete $('external-npm-form').dataset.filled;$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
+    trackedTask=null;externalProxyMethod='';$('external-npm-form').reset();$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
@@ -365,14 +365,13 @@ function renderExternalProxyGuide(){
     const core=$('core-form'),mode=core.elements.mode.value,card=$('external-proxy-card');
     const address=cfg?.core?.DOMAIN||'';
     $('proxy-current-domain').textContent=address||'尚未配置域名';
-    $('vault-domain-current').textContent=address||'尚未配置';
     const owned=!!cfg?.proxy?.managed||mode==='caddy';
     $('vault-managed-access').hidden=!address||!owned;
     $('vault-managed-access').textContent='面板会在应用密码库配置时设置反代和 HTTPS。';
 
     const vaultLink=$('open-vault-domain');
     vaultLink.hidden=!/^https?:\/\//i.test(address);
-    if(!vaultLink.hidden)vaultLink.href=address;
+    if(!vaultLink.hidden)vaultLink.href=address;else vaultLink.removeAttribute('href');
     $('proxy-current-route').textContent=!address?'在密码库基本信息中设置访问地址。':cfg?.proxy?.managed||mode==='caddy'?'由面板管理反代与 HTTPS。':mode==='host_ext'?'使用宿主机反代。':'使用已有容器反代。';
     card.hidden=mode!=='docker_ext'||!!cfg?.proxy?.managed;
     if(card.hidden){$('external-npm-form').elements.password.value='';return}
@@ -382,21 +381,17 @@ function renderExternalProxyGuide(){
     select.replaceChildren();if(choices.length>1)select.add(new Option('请选择 NPM 实例',''));for(const proxy of choices)select.add(new Option(proxy.name,proxy.id));
     if(choices.some(p=>p.id===previous))select.value=previous;
     $('vault-npm-instance').hidden=choices.length===1;
-    const record=cfg?.external_proxy,recorded=!!(record?.recorded&&(!select.value||record.target===select.value));
-    const showingRecord=recorded&&!externalProxyEditing;
-    $('external-npm-record').hidden=!showingRecord||externalProxyMethod==='manual';
-    $('external-record-description').textContent=recorded?'已保存 '+record.domain+' 的 NPM 站点记录。':'';
-    $('external-record-email').textContent=record?.email?(record.email_source==='npm'?'NPM 已确认的管理邮箱：':'上次使用的 NPM 管理邮箱：')+record.email:'';
-    if(recorded)$('external-record-open').href='https://'+record.domain;
-    $('external-record-cancel').hidden=!recorded||!externalProxyEditing;
+    const record=cfg?.external_proxy;
     const automatic=choices.length&&externalProxyMethod==='auto';
-    $('external-npm-auto').hidden=!automatic||showingRecord;$('external-manual-body').hidden=externalProxyMethod!=='manual'&&!!choices.length;
+    $('external-npm-auto').hidden=!automatic;
+    $('external-manual-body').hidden=externalProxyMethod!=='manual'&&!!choices.length;
+    if(record?.recorded&&!vaultLink.hidden&&record.domain===vaultLink.hostname)$('proxy-current-route').textContent='NPM 站点已配置。';
     $('external-method-auto').hidden=!choices.length;
     $('external-method-manual').hidden=false;
     for(const [id,selected] of [['external-method-auto',!!automatic],['external-method-manual',externalProxyMethod==='manual'||!choices.length]]){$(id).className=selected?'primary':'secondary';$(id).setAttribute('aria-pressed',String(selected))}
     $('external-manual-description').textContent=choices.length?'在 NPM 的 Hosts → Proxy Hosts 中点击 Add Proxy Host，按下列参数填写。已有同域名站点时请检查原规则。':'在现有反代中添加下列域名与转发目标；已有同域名规则时，请先检查原配置。';
     $('external-manual-ssl').textContent=choices.length?'开启 Websockets Support。SSL 中选择已有证书或 Request a new SSL Certificate，再开启 Force SSL 和 HTTP/2。申请证书前，将域名解析到本服务器并放行 80 / 443。':'为站点启用 WebSocket 支持和 HTTPS 证书，将域名解析到本服务器；证书申请方式由现有反代管理。';
-    if(!form.dataset.filled&&cfg?.configured){if(!form.elements.email.value)form.elements.email.value=record?.email||'';form.dataset.filled='true'}
+    if(!form.elements.email.value&&cfg?.configured&&record?.target===select.value)form.elements.email.value=record.email||'';
     let domain=core.elements.DOMAIN.value.trim();try{domain=new URL(domain.includes('://')?domain:'https://'+domain).hostname}catch{domain=''}
     $('external-route-domain').value=domain;
     $('external-route-network').textContent='Scheme 填 http，Forward Hostname / IP 填 vaultwarden，Forward Port 填 80。NPM 与密码库需处于同一 Docker 网络：'+network+'。';
@@ -409,8 +404,6 @@ function renderExternalProxyGuide(){
 }
 $('external-npm-form').onsubmit=async event=>{event.preventDefault();if(await startTask('existing-npm',formValues('external-npm-form')))$('external-npm-form').elements.password.value=''};
 $('external-npm-form').elements.target.onchange=renderExternalProxyGuide;
-$('external-record-edit').onclick=()=>{externalProxyMethod='auto';externalProxyEditing=true;const email=cfg?.external_proxy?.email;if(email)$('external-npm-form').elements.email.value=email;renderExternalProxyGuide()};
-$('external-record-cancel').onclick=()=>{externalProxyEditing=false;$('external-npm-form').elements.password.value='';renderExternalProxyGuide()};
 $('external-method-auto').onclick=()=>{externalProxyMethod='auto';renderExternalProxyGuide()};
 $('external-method-manual').onclick=()=>{externalProxyMethod='manual';renderExternalProxyGuide()};
 document.querySelectorAll('[data-copy-route]').forEach(button=>button.onclick=async()=>{const field=$(button.dataset.copyRoute);try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(field.value);else{field.focus();field.select();if(!document.execCommand('copy'))throw Error()}$('external-copy-result').textContent='已复制。'}catch{$('external-copy-result').textContent='请选中上方内容手动复制。';field.focus();field.select()}});
@@ -509,22 +502,14 @@ function renderPanelDomain(){
     const alternate=settingsSnapshot?.preferred_origin;
     const alternateLink=$('panel-alternate-domain');
     alternateLink.hidden=!alternate||alternate===address;
-    if(!alternateLink.hidden){
-        alternateLink.href=alternate;alternateLink.textContent='打开手动配置的域名 ↗';
-    }
-    $('panel-domain-status').hidden=!address;
+    if(!alternateLink.hidden)alternateLink.href=alternate;
     $('panel-access-address').textContent=address||(settingsSnapshot?'尚未配置域名':'正在读取域名…');
-    $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':verified?'HTTPS 已验证 · 公网直连仍可用':address?'已保存域名 · 反代状态未验证':'当前可通过 IP 和端口访问。';
+    $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':verified?'HTTPS 已验证 · 登录新域名后关闭公网直连':address?'已保存域名 · 反代状态未验证':'当前可通过 IP 和端口访问。';
     const link=$('open-panel-domain');
     link.hidden=!address;
-    if(address){
-        link.href=address;
-        $('panel-domain-link').href=address;
-        $('domains').textContent=address+(verified?(route.protected?' · 已限制公网直连':' · HTTPS 已验证'):' · 已保存，反代状态未验证');
-    }
+    if(address)link.href=address;
     const canProtect=route?.origin===location.origin&&!route.protected;
     $('protect-panel-port').hidden=!canProtect;
-    if(route?.origin&&!route.protected&&!canProtect)$('domains').textContent+='。从此域名登录后将自动限制公网直连。';
     const proxy=panelProxyOptions.find(item=>item.id===$('panel-proxy').value);
     if(!panelProxyOptions.length&&panelProxyMethod==='auto')panelProxyMethod='manual';
     const repair=panelRepair;
@@ -532,10 +517,12 @@ function renderPanelDomain(){
     const method=editing?(panelProxyMethod||(!panelProxyOptions.length&&panelProxyChecked?'manual':'')):'';
     const automatic=method==='auto', manual=method==='manual';
     const needsCredentials=repair?!repair.managed:automatic&&!!proxy&&!proxy.managed;
-    $('panel-repair-actions').hidden=!route?.proxy;
+    $('panel-repair-actions').hidden=!route?.proxy||editing||!!repair;
     $('panel-access-methods').hidden=!editing||!!repair;
+    $('panel-domain-back').hidden=!route?.proxy||(!editing&&!repair);
     $('panel-repair-check').disabled=taskRunning||panelUpdating||panelRepairChecking||panelDomainSubmitting;
     $('panel-edit-config').disabled=taskRunning||panelUpdating||panelRepairChecking||panelDomainSubmitting;
+    $('panel-domain-back').disabled=panelDomainSubmitting||taskRunning;
     $('domain').closest('label').hidden=!!repair;
     $('domain').required=!repair;
     for(const [id,selected] of [['panel-method-auto',automatic],['panel-method-manual',manual]]){
@@ -606,7 +593,7 @@ async function detectPanelProxy(){
 }
 $('detect-panel-proxy').onclick=detectPanelProxy;
 $('edit-vault-domain').onclick=()=>{
-    externalProxyMethod='';externalProxyEditing=false;
+    externalProxyMethod='';
     renderExternalProxyGuide();
     openWorkspaceDialog('vault-domain-dialog');
 };
@@ -616,11 +603,17 @@ $('panel-domain-dialog').addEventListener('close',()=>{
 });
 $('vault-domain-dialog').addEventListener('close',()=>{
     $('external-npm-form').elements.password.value='';
-    externalProxyMethod='';externalProxyEditing=false;
+    externalProxyMethod='';
 });
 $('panel-method-auto').onclick=()=>{panelProxyMethod='auto';renderPanelDomain()};
 $('panel-method-manual').onclick=()=>{
     panelProxyMethod='manual';$('domain-form').elements.password.value='';renderPanelDomain();
+};
+$('panel-domain-back').onclick=()=>{
+    panelRepair=null;panelEditing=false;panelProxyMethod='';
+    $('panel-repair-result').hidden=true;
+    $('domain-form').elements.password.value='';
+    renderPanelDomain();
 };
 $('panel-edit-config').onclick=()=>{
     panelRepair=null;panelEditing=true;

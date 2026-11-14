@@ -309,7 +309,7 @@ await run(`document.querySelector('[data-uninstall=core]').click()`);await sleep
 if(!await run(`location.hash==='#cleanup'&&document.getElementById('remove-form').elements.scope.value==='core'&&document.getElementById('remove-form').elements.delete_data.value==='keep'`))throw Error('Core uninstall entry did not select core with data retained');
 await run(`document.querySelector('[data-uninstall=backup]').click()`);await sleep(100);
 if(!await run(`document.getElementById('remove-form').elements.scope.value==='backup'&&document.getElementById('remove-form').elements.delete_data.value==='keep'`))throw Error('Backup uninstall entry did not select backup');
-if(!await run(`document.getElementById('domain-form').closest('[data-view]').querySelectorAll('.config-group').length>=2`))throw Error('Panel maintenance missing from panel settings');
+if(!await run(`document.querySelector('section[data-view=settings]').textContent.includes('卸载网页面板本身')`))throw Error('Panel maintenance missing from panel settings');
 await run(`window.savedEnvironment=environment;environment={...environment,containers:[]};window.savedConfirm=window.confirmDialog;window.confirmDialog=message=>{window.backupStartConfirmation=message;return false};try{if(await startTask('backup-start'))throw Error('Cancelled backup start was accepted')}finally{window.confirmDialog=window.savedConfirm;environment=window.savedEnvironment;renderPresentation()}location.hash='overview'`);
 if(!await run(`window.backupStartConfirmation.includes('先启动密码库主服务')`))throw Error('Backup start does not explain starting main service');
 
@@ -325,12 +325,11 @@ await run(`const form=document.getElementById('external-npm-form');form.elements
 if(!saved.some(x=>x.path==='/api/task/start'&&x.data.action==='existing-npm'&&x.data.target==='a'.repeat(12)&&x.data.email==='npm-owner@example.com'&&x.data.password==='ExistingNpmSecret123!'))throw Error('Existing NPM automatic route form did not submit correct target and credentials');
 if(!await run(`document.getElementById('external-npm-form').elements.password.value===''`))throw Error('Existing NPM secret retained after task submission');
 await run(`await api('test-state',{config:{external_proxy:{recorded:true,target:'a'.repeat(12),domain:'vault.example.com',email:'npm-owner@example.com'}}});await loadConfig()`);
-if(!await run(`location.hash==='#proxy'&&!document.getElementById('external-npm-record').hidden&&document.getElementById('external-npm-auto').hidden&&document.getElementById('external-record-email').textContent.includes('npm-owner@example.com')`))throw Error('Configured NPM still asks for credentials or has no recorded email');
-await shot('proxy-recorded',1440,1000);await shot('proxy-recorded-mobile',390,1000);
-await run(`document.getElementById('external-record-edit').click()`);
-if(!await run(`!document.getElementById('external-npm-auto').hidden&&document.getElementById('external-npm-form').elements.email.value==='npm-owner@example.com'&&document.getElementById('external-npm-form').elements.password.value===''`))throw Error('NPM edit does not reuse email or leaks old password');
-await run(`document.getElementById('external-record-cancel').click()`);
-if(!await run(`document.getElementById('external-npm-auto').hidden&&!document.getElementById('external-npm-record').hidden`))throw Error('NPM cancel does not return to record');
+await run(`$('edit-vault-domain').click()`);
+if(!await run(`$('external-npm-auto').hidden&&$('proxy-current-route').textContent.includes('NPM 站点已配置')&&!$('vault-domain-dialog').textContent.includes('打开密码库')`))throw Error('Vault dialog duplicates the configured site summary');
+await run(`$('external-method-auto').click()`);
+if(!await run(`!$('external-npm-auto').hidden&&$('external-npm-form').elements.email.value==='npm-owner@example.com'&&$('external-npm-form').elements.password.value===''`))throw Error('NPM edit does not reuse email or leaks old password');
+await run(`$('vault-domain-dialog').close()`);
 await run(`await api('test-state',{config:{external_proxy:{}}})`);
 
 await run(`await api('test-state',externalBaseline);await Promise.all([loadConfig(),refreshStatus(),loadProxyEnvironment()]);location.hash='overview'`);await sleep(100);

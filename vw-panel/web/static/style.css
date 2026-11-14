@@ -125,7 +125,7 @@ nav .nav-group{margin-top:8px;flex-shrink:0}
 @media(max-width:760px){#notice{top:14px;gap:8px;padding:12px;flex-wrap:wrap;width:calc(100vw - 28px);max-width:500px}#notice-message{flex:1;max-width:none}.toast-detail{margin-left:31px;order:4}.toast-close{margin-left:auto}}
 @media(prefers-reduced-motion:reduce){#notice.loading .toast-icon{animation:none}}
 
-.proxy-overview{margin-bottom:20px}.field small a{color:var(--accent);margin-left:6px}.proxy-overview .muted{font-size:12px}#external-npm-record .form-actions{justify-content:flex-start}#external-record-email{font-size:12px;margin-top:8px}
+.proxy-overview{margin-bottom:20px}.field small a{color:var(--accent);margin-left:6px}.proxy-overview .muted{font-size:12px}
 
 .dialog-open{overflow:hidden}.action-dialog{padding:0;border:1px solid #e8e5f0;border-radius:20px;width:min(460px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;color:var(--ink);background:#fff;box-shadow:0 30px 100px #20163335}
 .action-dialog::backdrop{background:#211d385c;backdrop-filter:blur(5px)}.action-dialog form{padding:26px}.action-dialog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.action-dialog-icon{display:grid;place-items:center;width:44px;height:44px;background:var(--purple-light);border-radius:14px;color:var(--accent);font-size:23px;font-weight:600}
@@ -205,11 +205,13 @@ form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
 }
 
 .domain-vault-settings{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.domain-vault-settings>div{display:grid;gap:5px;min-width:0}
-#vault-domain-current{overflow-wrap:anywhere}
 .vault-route-options{border-top:1px solid var(--line);padding-top:16px}
 .vault-route-options .external-methods{margin:0}
-.vault-route-options .hint,.vault-route-options #external-npm-auto,.vault-route-options .external-manual{margin-top:16px}
+.vault-route-options #external-npm-auto,.vault-route-options .external-manual{margin-top:16px}
 #panel-open-npm,#vault-auto-open-npm{display:inline-block;margin:8px 0}
 #panel-manual-guide{margin-top:16px}
 #domain-form .form-grid:has(#panel-proxy-field[hidden]){grid-template-columns:1fr}
+
+#panel-repair-actions{margin:0}
+#panel-domain-back{margin:0 0 12px;padding-left:0}
+#panel-repair-result:not([hidden]){margin:0 0 16px}
