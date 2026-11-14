@@ -26,11 +26,20 @@ config.configured=true;config.backup_configured=true;
 await call('Page.navigate',{url:`http://127.0.0.1:${port}/`});await waitFor(`authPhase==='authenticated'`);
 await run(`location.hash='proxy'`);
 await waitFor(`document.getElementById('panel-proxy').value==='aaaaaaaaaaaa'`);
+if(!await run(`!$('domain-form').checkVisibility()&&document.querySelector('[data-page=overview]').nextElementSibling.dataset.page==='proxy'`))throw Error('Domain editor is visible by default or is grouped incorrectly');
+await run(`cfg.core.DOMAIN='https://vault.example.com';renderExternalProxyGuide()`);
+await shot('domain-access',1440,1000);await shot('domain-access-mobile',390,900);
+await run(`$('edit-panel-domain').click()`);
+await waitFor(`$('panel-domain-dialog').open`);
+await shot('domain-panel-editor',1440,1000);
+await run(`$('panel-domain-dialog').close();$('edit-vault-domain').click()`);
+await waitFor(`$('vault-domain-dialog').open`);
+await run(`$('vault-domain-dialog').close();$('edit-panel-domain').click()`);
 if(!await run(`(()=>{const field=$('domain');field.value='panel.example.com';return field.checkValidity()&&!$('panel-npm-credentials').hidden&&!$('configure-panel-domain').disabled&&$('protect-panel-port').hidden})()`))throw Error('Panel domain form does not accept a bare domain or select detected NPM');
 nonNpmOnly=true;
-await run(`document.getElementById('detect-panel-proxy').click()`);
+await run(`$('panel-domain-dialog').close();document.querySelector('.domain-proxy-summary').open=true;$('detect-panel-proxy').click()`);
 await waitFor(`$('detected-proxies').textContent.includes('Caddy')&&$('detected-proxies').textContent.includes('Nginx')`);
-if(!await run(`$('configure-panel-domain').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('section').dataset.view==='proxy'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
+if(!await run(`$('configure-panel-domain').disabled&&$('panel-npm-credentials').hidden&&$('domain-form').closest('dialog').id==='panel-domain-dialog'&&document.querySelectorAll('[data-page=proxy]').length===1&&!document.querySelector('[data-page=proxy]').closest('.nav-group')`))throw Error('Non-NPM detection or shared domain navigation is incorrect');
 
 
 await run(`location.hash='remote'`);await sleep(150);

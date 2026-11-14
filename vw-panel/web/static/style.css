@@ -174,3 +174,32 @@ form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
 
 .detected-proxies{list-style:none;padding:0;margin:12px 0 0}
 .detected-proxies li{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
+
+
+.domain-access-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.domain-access-card{display:flex;flex-direction:column;gap:10px;margin:0;padding:22px}
+.domain-access-card h2{font-size:16px;margin:0}
+.domain-access-address{font-size:17px;font-weight:650;overflow-wrap:anywhere;margin:4px 0 0}
+.domain-access-card .muted{font-size:12px;margin:0}
+.domain-access-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:10px}
+.domain-proxy-summary{padding:0}
+.domain-proxy-summary>summary{display:flex;align-items:center;gap:12px;padding:16px 20px;cursor:pointer;list-style:none}
+.domain-proxy-summary>summary::-webkit-details-marker{display:none}
+.domain-proxy-summary>summary::after{content:'⌄';margin-left:auto;color:var(--muted)}
+.domain-proxy-summary[open]>summary::after{content:'⌃'}
+.domain-proxy-summary>summary .muted{font-size:12px;overflow-wrap:anywhere}
+.domain-proxy-body{padding:0 20px 8px}
+.domain-proxy-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:12px}
+.domain-proxy-toolbar p{margin:0}
+.domain-proxy-toolbar button{flex-shrink:0}
+.domain-dialog{width:min(720px,calc(100vw - 32px))}
+.domain-dialog .form-grid{max-width:none;gap:16px}
+.domain-dialog .workspace-dialog-body>.hint{margin:0 0 20px}
+.domain-dialog #panel-npm-credentials{margin-top:16px}
+.domain-dialog #panel-proxy-help{font-size:12px;margin:12px 0 0}
+.domain-vault-settings{margin-bottom:16px}
+@media(max-width:760px){
+  .domain-access-grid{grid-template-columns:1fr}
+  .domain-access-card{padding:18px}
+  .domain-dialog .form-grid{grid-template-columns:1fr}
+}

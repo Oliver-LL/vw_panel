@@ -333,8 +333,12 @@ function renderManagedProxy(){
 }
 function renderExternalProxyGuide(){
     const core=$('core-form'),mode=core.elements.mode.value,card=$('external-proxy-card');
-    $('proxy-current-domain').value=cfg?.core?.DOMAIN||'请先保存密码库的基本信息';
-    $('proxy-current-route').textContent=cfg?.proxy?.managed?'反代由面板管理，应用主服务配置时会配置站点与 HTTPS。':mode==='caddy'?'使用 Caddy 自动 HTTPS，应用配置时配置反代与证书。':mode==='host_ext'?'由现有宿主机反代转发到 http://127.0.0.1:'+core.elements.port.value+'，域名规则与证书需在现有反代配置。':'使用已有容器反代。检测到工具和共享网络不代表站点已配置，访问前请确认站点规则与证书。';
+    const address=cfg?.core?.DOMAIN||'';
+    $('proxy-current-domain').textContent=address||'尚未配置域名';
+    const vaultLink=$('open-vault-domain');
+    vaultLink.hidden=!/^https?:\/\//i.test(address);
+    if(!vaultLink.hidden)vaultLink.href=address;
+    $('proxy-current-route').textContent=!address?'在密码库基本信息中设置访问地址。':cfg?.proxy?.managed||mode==='caddy'?'由面板管理反代与 HTTPS。':mode==='host_ext'?'使用宿主机反代。':'使用已有容器反代。';
     card.hidden=mode!=='docker_ext'||!!cfg?.proxy?.managed;
     if(card.hidden){$('external-npm-form').elements.password.value='';return}
     const target=cfg?.proxy_target||core.elements.PROXY_TARGET.value,network=core.elements.network.value;
@@ -461,6 +465,11 @@ let panelProxyOptions=[], panelProxyScanning=false, panelProxyChecked=false, pan
 function renderPanelDomain(){
     const route=settingsSnapshot?.panel_route;
     $('panel-domain-status').hidden=!route?.origin;
+    $('panel-access-address').textContent=route?.origin||'尚未配置域名';
+    $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':route?.origin?'HTTPS 已验证 · 公网直连仍可用':'当前可通过 IP 和端口访问。';
+    const link=$('open-panel-domain');
+    link.hidden=!route?.origin;
+    if(!link.hidden)link.href=route.origin;
     if(route?.origin){
         $('panel-domain-link').href=route.origin;
         $('domains').textContent=route.origin+' · '+route.proxy+(route.protected?' · 已限制公网直连':' · HTTPS 已验证');
@@ -488,6 +497,7 @@ async function detectPanelProxy(){
     panelProxyScanning=true;renderPanelDomain();
     const previous=$('panel-proxy').value;
     $('panel-proxy-status').textContent='正在检测宿主机和 Docker 容器…';
+    $('proxy-summary-caption').textContent='检测中…';
     const list=$('detected-proxies');
     list.replaceChildren();list.hidden=true;
     $('panel-proxy-help').hidden=true;
@@ -505,6 +515,9 @@ async function detectPanelProxy(){
             item.append(kind,status);list.append(item);
         }
         list.hidden=!result.detected.length;
+        const kinds=[...new Set(result.detected.map(proxy=>proxy.kind==='Nginx Proxy Manager'?'NPM':proxy.kind))];
+        $('proxy-summary-caption').textContent=kinds.length?kinds.join('、'):result.message?'检测未完成':'未检测到反代';
+
         const select=$('panel-proxy');
         select.replaceChildren(new Option('请选择用于公网访问的 NPM',''));
         for(const proxy of panelProxyOptions)select.add(new Option('NPM · '+proxy.name,proxy.id));
@@ -517,9 +530,17 @@ async function detectPanelProxy(){
         if(isSessionTransition(error))return;
         panelProxyOptions=[];$('panel-proxy-field').hidden=true;
         $('panel-proxy-status').textContent=error.message;
+        $('proxy-summary-caption').textContent='检测失败';
     }finally{panelProxyScanning=false;renderPanelDomain()}
 }
 $('detect-panel-proxy').onclick=detectPanelProxy;
+$('edit-vault-domain').onclick=()=>openWorkspaceDialog('vault-domain-dialog');
+$('panel-domain-dialog').addEventListener('close',()=>$('domain-form').elements.password.value='');
+$('edit-panel-domain').onclick=()=>{
+    openWorkspaceDialog('panel-domain-dialog');
+    if(!panelProxyChecked)detectPanelProxy();
+};
+
 $('panel-proxy').onchange=()=>{
     $('domain-form').elements.password.value='';
     renderPanelDomain();
