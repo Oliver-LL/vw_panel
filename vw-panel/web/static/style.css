@@ -203,3 +203,12 @@ form>.toggle:last-of-type,.group-body>.toggle:last-of-type{border-bottom:0}
   .domain-access-card{padding:18px}
   .domain-dialog .form-grid{grid-template-columns:1fr}
 }
+
+.domain-vault-settings{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.domain-vault-settings>div{display:grid;gap:5px;min-width:0}
+#vault-domain-current{overflow-wrap:anywhere}
+.vault-route-options{border-top:1px solid var(--line);padding-top:16px}
+.vault-route-options .external-methods{margin:0}
+.vault-route-options .hint,.vault-route-options #external-npm-auto,.vault-route-options .external-manual{margin-top:16px}
+#use-external-panel-npm{margin-top:12px}
+#domain-form .form-grid:has(#panel-proxy-field[hidden]){grid-template-columns:1fr}

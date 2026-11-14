@@ -43,7 +43,7 @@ let csrf='', timer=null, refreshing=false, taskRunning=false, currentTask='', fi
 let cursor=0,generation='',raw='',consoleRunning=false,hiddenInput=false;
 const dirty=new Set();
 let tokenState={id:'',phase:'',message:''},tokenStarting=false;
-let externalProxyMethod='auto',externalProxyEditing=false;
+let externalProxyMethod='',externalProxyEditing=false;
 let authEpoch=0,authPhase='checking',authController=new AbortController();
 const activeUploads=new Set();
 function sessionChanged(){const error=new Error('');error.name='SessionChanged';return error}
@@ -51,7 +51,7 @@ function isSessionTransition(error){return error?.name==='SessionChanged'}
 function invalidateAuth(phase){
     dismissActionDialog();
     clearStorageDraft();presetSubmitted=null;
-    trackedTask=null;externalProxyMethod='auto';externalProxyEditing=false;$('external-npm-form').reset();delete $('external-npm-form').dataset.filled;$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
+    trackedTask=null;externalProxyMethod='';externalProxyEditing=false;$('external-npm-form').reset();delete $('external-npm-form').dataset.filled;$('external-copy-result').textContent='';tokenState={id:'',phase:'',message:''};tokenStarting=false;setVersionPopover(false);authEpoch++;authController.abort();authController=new AbortController();authPhase=phase;csrf='';
     clearInterval(timer);timer=null;clearTimeout(updateWatch);updateWatch=null;
     for(const xhr of activeUploads)xhr.abort();activeUploads.clear();
     for(const button of document.querySelectorAll('#workspace form button:not([type=button])'))if(!button.closest('#input-form'))button.disabled=false;
@@ -328,13 +328,18 @@ function renderManagedProxy(){
     $('remove-proxy-field').hidden=!managed||$('remove-form').elements.scope.value==='backup';
     if(npm){
         const url=new URL(location.href);url.protocol='http:';url.port=String(proxy.admin_port);url.pathname='/';url.search='';url.hash='';$('open-npm').href=url.href;
-        $('managed-proxy-description').textContent='NPM 由面板安装，管理邮箱为 '+proxy.email+'，管理端口为 '+proxy.admin_port+'。部署完成后可打开管理界面；若无法访问，请检查该端口是否放行。';
+        $('managed-proxy-description').textContent='面板已保存 NPM 管理账号，可按需查看。';
     }else if(managed)$('managed-proxy-description').textContent='Nginx 与证书续期服务由面板管理；修改域名后保存并应用配置，证书申请失败会恢复之前的 Nginx 配置。';
 }
 function renderExternalProxyGuide(){
     const core=$('core-form'),mode=core.elements.mode.value,card=$('external-proxy-card');
     const address=cfg?.core?.DOMAIN||'';
     $('proxy-current-domain').textContent=address||'尚未配置域名';
+    $('vault-domain-current').textContent=address||'尚未配置';
+    const owned=!!cfg?.proxy?.managed||mode==='caddy';
+    $('vault-managed-access').hidden=!address||!owned;
+    $('vault-managed-access').textContent='面板会在应用密码库配置时设置反代和 HTTPS。';
+
     const vaultLink=$('open-vault-domain');
     vaultLink.hidden=!/^https?:\/\//i.test(address);
     if(!vaultLink.hidden)vaultLink.href=address;
@@ -346,16 +351,18 @@ function renderExternalProxyGuide(){
     const form=$('external-npm-form'),select=form.elements.target,previous=select.value;
     select.replaceChildren();if(choices.length>1)select.add(new Option('请选择 NPM 实例',''));for(const proxy of choices)select.add(new Option(proxy.name,proxy.id));
     if(choices.some(p=>p.id===previous))select.value=previous;
+    $('vault-npm-instance').hidden=choices.length===1;
     const record=cfg?.external_proxy,recorded=!!(record?.recorded&&(!select.value||record.target===select.value));
     const showingRecord=recorded&&!externalProxyEditing;
-    $('external-npm-record').hidden=!showingRecord;
-    $('external-record-description').textContent=recorded?'上次已为 '+record.domain+' 写入站点与 HTTPS，无需重复填写账号。此记录不代表当前访问已检测正常。':'';
-    $('external-record-email').textContent=record?.email?(record.email_source==='npm'?'NPM 已确认的管理邮箱：':'上次使用的 NPM 管理邮箱：')+record.email:'旧版本未记录管理邮箱；仅重新配置时需要填写。';
+    $('external-npm-record').hidden=!showingRecord||externalProxyMethod==='manual';
+    $('external-record-description').textContent=recorded?'已保存 '+record.domain+' 的 NPM 站点记录。':'';
+    $('external-record-email').textContent=record?.email?(record.email_source==='npm'?'NPM 已确认的管理邮箱：':'上次使用的 NPM 管理邮箱：')+record.email:'';
     if(recorded)$('external-record-open').href='https://'+record.domain;
     $('external-record-cancel').hidden=!recorded||!externalProxyEditing;
     const automatic=choices.length&&externalProxyMethod==='auto';
-    $('external-npm-auto').hidden=!automatic||showingRecord;$('external-manual-body').hidden=!!automatic;
-    $('external-method-auto').disabled=!choices.length;
+    $('external-npm-auto').hidden=!automatic||showingRecord;$('external-manual-body').hidden=externalProxyMethod!=='manual'&&!!choices.length;
+    $('external-method-auto').hidden=!choices.length;
+    $('external-method-manual').hidden=!choices.length;
     for(const [id,selected] of [['external-method-auto',!!automatic],['external-method-manual',!automatic]]){$(id).className=selected?'primary':'secondary';$(id).setAttribute('aria-pressed',String(selected))}
     $('external-manual-description').textContent=choices.length?'在 NPM 的 Hosts → Proxy Hosts 中点击 Add Proxy Host，按下列参数填写。已有同域名站点时请检查原规则。':'在现有反代中添加下列域名与转发目标；已有同域名规则时，请先检查原配置。';
     $('external-manual-ssl').textContent=choices.length?'开启 Websockets Support。SSL 中选择已有证书或 Request a new SSL Certificate，再开启 Force SSL 和 HTTP/2。申请证书前，将域名解析到本服务器并放行 80 / 443。':'为站点启用 WebSocket 支持和 HTTPS 证书，将域名解析到本服务器；证书申请方式由现有反代管理。';
@@ -365,11 +372,11 @@ function renderExternalProxyGuide(){
     $('external-route-network').textContent='Scheme 填 http，Forward Hostname / IP 填 vaultwarden，Forward Port 填 80。NPM 与密码库需处于同一 Docker 网络：'+network+'。';
     const running=environment?.containers?.some(row=>row.Names==='vaultwarden'&&row.State==='running');
     form.querySelector('button[type=submit]').disabled=taskRunning||panelUpdating||!cfg?.configured||!running||hasUnsaved('core')||cfg?.application?.core==='pending';
-    $('external-npm-ready').textContent=!cfg?.configured?'请先保存主服务配置。':!running?'请先启用主服务，再创建反代站点。':(hasUnsaved('core')||cfg?.application?.core==='pending')?'请先保存并应用主服务修改。':'需要域名解析正确，80 / 443 可用；现有同域名规则不会被覆盖。';
+    $('external-npm-ready').textContent=!cfg?.configured?'请先保存主服务配置。':!running?'请先启用主服务，再创建反代站点。':(hasUnsaved('core')||cfg?.application?.core==='pending')?'请先保存并应用主服务修改。':'请先将域名解析到服务器。';
     const selected=choices.find(p=>p.id===select.value),link=$('external-open-npm');link.hidden=!selected?.admin_port||selected.admin_local;
     if(!link.hidden){const url=new URL(location.href);url.protocol='http:';url.port=String(selected.admin_port);url.pathname='/';url.search='';url.hash='';link.href=url.href}
 }
-$('external-npm-form').onsubmit=async event=>{event.preventDefault();if(!await confirmDialog('将在所选 NPM 创建密码库站点并申请 HTTPS 证书。已有同域名规则会保留并提示。',{title:'配置 NPM 站点',accept:'创建站点'}))return;if(await startTask('existing-npm',formValues('external-npm-form')))$('external-npm-form').elements.password.value=''};
+$('external-npm-form').onsubmit=async event=>{event.preventDefault();if(await startTask('existing-npm',formValues('external-npm-form')))$('external-npm-form').elements.password.value=''};
 $('external-npm-form').elements.target.onchange=renderExternalProxyGuide;
 $('external-record-edit').onclick=()=>{externalProxyMethod='auto';externalProxyEditing=true;const email=cfg?.external_proxy?.email;if(email)$('external-npm-form').elements.email.value=email;renderExternalProxyGuide()};
 $('external-record-cancel').onclick=()=>{externalProxyEditing=false;$('external-npm-form').elements.password.value='';renderExternalProxyGuide()};
@@ -461,30 +468,38 @@ $('token-form').onsubmit=async event=>{
 function paintTask(job){syncTokenJob(job);presentationJob=job;taskRunning=job.state==='running';currentTask=job.id;$('task-title').textContent=job.title;$('task-badge').textContent=job.cancelled?(job.state==='running'?'正在取消':'已取消'):({idle:'等待操作',running:'执行中',success:'已完成',failed:'执行失败'})[job.state]||job.state;$('task-badge').className='badge '+(job.cancelled?'info':job.state);$('task-spinner').hidden=!taskRunning;$('task-description').textContent=job.cancelled?'存储配置已结束，可重新开始或更新面板。':taskRunning?'任务在后台执行。镜像下载可能需要几分钟，请耐心等待。':job.state==='success'?'操作已完成。配置和服务状态已刷新。':job.state==='failed'?'请根据下面的错误处理后重试。':'从配置页面或概览发起操作。';$('task-output').textContent=plain(job.output||'暂无输出');$('task-error').hidden=!job.error||!!job.cancelled;$('task-error').textContent=job.error||'';if(job.state==='failed'||['logs','backup-logs','proxy-logs'].includes(job.action))$('task-details').open=true;document.querySelectorAll('[data-task]').forEach(b=>b.disabled=taskRunning||panelUpdating);renderPresentation();syncVersionPopover()}
 async function poll(){if(refreshing||!csrf)return;const epoch=authEpoch;refreshing=true;try{const job=await api('task');paintTask(job);if(job.result)renderResult(job);if(Date.now()-lastStatus>15000)await refreshStatus();if(epoch!==authEpoch)return;if(job.id&&job.state!=='running'&&finishedTask!==job.id){finishedTask=job.id;await Promise.all([loadConfig(),refreshStatus()])}if(epoch!==authEpoch)return;if(job.state!=='running')taskOutcome(job);if($('advanced')?.open||consoleRunning)await pollConsole()}catch(e){if(isSessionTransition(e))return;notice(e.message,true)}finally{if(epoch===authEpoch)refreshing=false}}
 $('refresh').onclick=async()=>{const epoch=authEpoch;await Promise.all([loadConfig(),refreshStatus(),poll()]);if(epoch!==authEpoch)return;notice('状态已刷新，未保存的表单已保留。')};$('refresh-files').onclick=loadConfig;
-let panelProxyOptions=[], panelProxyScanning=false, panelProxyChecked=false, panelDomainSubmitting=false;
+let panelProxyOptions=[], panelProxyScanning=false, panelProxyChecked=false, panelDomainSubmitting=false, useExternalNpm=false;
 function renderPanelDomain(){
     const route=settingsSnapshot?.panel_route;
-    $('panel-domain-status').hidden=!route?.origin;
-    $('panel-access-address').textContent=route?.origin||'尚未配置域名';
-    $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':route?.origin?'HTTPS 已验证 · 公网直连仍可用':'当前可通过 IP 和端口访问。';
+    const origins=(settingsSnapshot?.origins||[]).filter(origin=>typeof origin==='string'&&origin.startsWith('https://'));
+    const address=route?.origin||(origins.includes(location.origin)?location.origin:origins[0]);
+    const verified=!!route?.origin;
+    $('panel-domain-status').hidden=!address;
+    $('panel-access-address').textContent=address||(settingsSnapshot?'尚未配置域名':'正在读取域名…');
+    $('panel-access-state').textContent=route?.protected?'HTTPS 已验证 · 公网直连已限制':verified?'HTTPS 已验证 · 公网直连仍可用':address?'已保存域名 · 反代状态未验证':'当前可通过 IP 和端口访问。';
     const link=$('open-panel-domain');
-    link.hidden=!route?.origin;
-    if(!link.hidden)link.href=route.origin;
-    if(route?.origin){
-        $('panel-domain-link').href=route.origin;
-        $('domains').textContent=route.origin+' · '+route.proxy+(route.protected?' · 已限制公网直连':' · HTTPS 已验证');
+    link.hidden=!address;
+    if(address){
+        link.href=address;
+        $('panel-domain-link').href=address;
+        $('domains').textContent=address+(verified?(route.protected?' · 已限制公网直连':' · HTTPS 已验证'):' · 已保存，反代状态未验证');
     }
     const canProtect=route?.origin===location.origin&&!route.protected;
     $('protect-panel-port').hidden=!canProtect;
     if(route?.origin&&!route.protected&&!canProtect)$('domains').textContent+='。请通过此域名登录后限制公网直连。';
     const proxy=panelProxyOptions.find(item=>item.id===$('panel-proxy').value);
-    const credentials=$('panel-npm-credentials'), needsCredentials=!!proxy&&!proxy.managed;
+    const external=!!proxy&&!proxy.managed, needsCredentials=external&&useExternalNpm;
+    $('panel-proxy-field').hidden=panelProxyOptions.length<2;
+    $('use-external-panel-npm').hidden=!external||useExternalNpm||!!route?.protected;
+    $('panel-proxy-help').hidden=false;
+    $('panel-proxy-help').textContent=panelProxyScanning?'正在检测反代…':proxy?.managed?'使用面板已保存的 NPM 账号。请先将域名解析到服务器。':external?'检测到外部 NPM。请使用你平时登录 NPM 的账号，或请服务器管理员提供。':panelProxyOptions.length?'请选择用于配置的反代。':'未检测到可自动配置的 NPM。';
+    const credentials=$('panel-npm-credentials');
     credentials.hidden=!needsCredentials;
     for(const input of credentials.querySelectorAll('input')){
         input.required=needsCredentials;
         input.disabled=!needsCredentials;
     }
-    $('configure-panel-domain').disabled=panelDomainSubmitting||!proxy||taskRunning||panelUpdating||panelProxyScanning||!!route?.protected;
+    $('configure-panel-domain').disabled=panelDomainSubmitting||!proxy||(external&&!useExternalNpm)||taskRunning||panelUpdating||panelProxyScanning||!!route?.protected;
     $('detect-panel-proxy').disabled=panelProxyScanning||taskRunning||panelUpdating;
     $('protect-panel-port').disabled=taskRunning||panelUpdating;
 }
@@ -500,7 +515,6 @@ async function detectPanelProxy(){
     $('proxy-summary-caption').textContent='检测中…';
     const list=$('detected-proxies');
     list.replaceChildren();list.hidden=true;
-    $('panel-proxy-help').hidden=true;
     try{
         const result=await api('domain/proxies');
         panelProxyOptions=result.proxies;
@@ -521,11 +535,9 @@ async function detectPanelProxy(){
         const select=$('panel-proxy');
         select.replaceChildren(new Option('请选择用于公网访问的 NPM',''));
         for(const proxy of panelProxyOptions)select.add(new Option('NPM · '+proxy.name,proxy.id));
-        select.value=panelProxyOptions.some(proxy=>proxy.id===previous)?previous:panelProxyOptions.length===1?panelProxyOptions[0].id:'';
+        select.value=panelProxyOptions.some(proxy=>proxy.id===previous)?previous:(panelProxyOptions.find(proxy=>proxy.managed)?.id||(panelProxyOptions.length===1?panelProxyOptions[0].id:''));
         $('panel-proxy-field').hidden=!panelProxyOptions.length;
         $('panel-proxy-status').textContent=result.message||(result.detected.length?'已检测到 '+result.detected.length+' 个服务。':'未检测到反代。');
-        $('panel-proxy-help').hidden=false;
-        $('panel-proxy-help').textContent=panelProxyOptions.length?'域名解析到本服务器后，可使用检测到的 NPM 自动配置站点和证书。':'自动配置面板 HTTPS 目前需要已开放 HTTPS 入口的 NPM。';
     }catch(error){
         if(isSessionTransition(error))return;
         panelProxyOptions=[];$('panel-proxy-field').hidden=true;
@@ -534,14 +546,31 @@ async function detectPanelProxy(){
     }finally{panelProxyScanning=false;renderPanelDomain()}
 }
 $('detect-panel-proxy').onclick=detectPanelProxy;
-$('edit-vault-domain').onclick=()=>openWorkspaceDialog('vault-domain-dialog');
-$('panel-domain-dialog').addEventListener('close',()=>$('domain-form').elements.password.value='');
+$('edit-vault-domain').onclick=()=>{
+    externalProxyMethod='';externalProxyEditing=false;
+    renderExternalProxyGuide();
+    openWorkspaceDialog('vault-domain-dialog');
+};
+$('panel-domain-dialog').addEventListener('close',()=>{
+    $('domain-form').elements.password.value='';
+    useExternalNpm=false;renderPanelDomain();
+});
+$('vault-domain-dialog').addEventListener('close',()=>{
+    $('external-npm-form').elements.password.value='';
+    externalProxyMethod='';externalProxyEditing=false;
+});
+$('use-external-panel-npm').onclick=()=>{useExternalNpm=true;renderPanelDomain()};
 $('edit-panel-domain').onclick=()=>{
+    if(!$('domain').value){
+        const address=$('open-panel-domain').hidden?'':$('open-panel-domain').href;
+        if(address)$('domain').value=new URL(address).hostname;
+    }
     openWorkspaceDialog('panel-domain-dialog');
     if(!panelProxyChecked)detectPanelProxy();
 };
 
 $('panel-proxy').onchange=()=>{
+    useExternalNpm=false;
     $('domain-form').elements.password.value='';
     renderPanelDomain();
 };
