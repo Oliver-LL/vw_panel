@@ -19,7 +19,7 @@
 #
 # 使用提示:
 # - 建议以 root 或具备 Docker 管理权限的用户运行
-# - 首次使用前，请先修改下方 SCRIPT_URL 为你托管此脚本的直链地址
+# - 使用其他托管地址时，可修改下方 SCRIPT_URL
 # - 推荐在全新服务器或确认无冲突的环境中执行
 # - 如需重新部署，请优先使用脚本内的“彻底卸载并清理环境”
 # ==========================================
@@ -29,7 +29,7 @@
 # 例如 Github Gist 的 Raw 链接，或者你自己的域名链接
 # ==========================================
 
-SCRIPT_URL="https://gist.githubusercontent.com/Oliver-LL/72ef2f0aa06ce5d4f186bbc67adebada/raw/gistfile1.txt"
+SCRIPT_URL="https://raw.githubusercontent.com/Oliver-LL/vw_panel/main/vw-panel/vw_original.sh"
 
 # 设置颜色输出
 if [[ -t 1 ]] && { [ "${TERM:-}" != "dumb" ] && [ "$(tput colors 2>/dev/null)" -ge 8 ] 2>/dev/null; }; then
@@ -449,6 +449,24 @@ fi
 if [ -z "$DOCKER_NET_OWNED" ]; then
     DOCKER_NET_OWNED="false"
 fi
+
+# 统一 Docker 容器缓存: 一次 docker ps -a 同时服务于 service_running + find_caddy_container_id
+# 格式: ID\tNames\tImage\tState  (State: running/exited/created/paused/...)
+_DOCKER_CACHE=""
+_DOCKER_CACHE_SEC=-10
+
+_refresh_docker_cache() {
+    _DOCKER_CACHE=$(docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}' 2>/dev/null || true)
+    _DOCKER_CACHE_SEC=$SECONDS
+}
+
+service_running() {
+    local name="$1"
+    if [ $(( SECONDS - _DOCKER_CACHE_SEC )) -ge 5 ]; then
+        _refresh_docker_cache
+    fi
+    printf '%s\n' "$_DOCKER_CACHE" | awk -F '\t' -v n="$name" '$2 == n && $4 == "running" { found=1; exit } END { exit !found }'
+}
 
 infer_backup_mode() {
     local backup_compose=""
@@ -2688,24 +2706,6 @@ reload_caddy_runtime() {
 filter_selectable_networks() {
     docker network ls --format '{{.Name}}' 2>/dev/null | awk '
         $0 != "bridge" && $0 != "host" && $0 != "none" && $0 != "ingress" { print }'
-}
-
-# 统一 Docker 容器缓存: 一次 docker ps -a 同时服务于 service_running + find_caddy_container_id
-# 格式: ID\tNames\tImage\tState  (State: running/exited/created/paused/...)
-_DOCKER_CACHE=""
-_DOCKER_CACHE_SEC=-10
-
-_refresh_docker_cache() {
-    _DOCKER_CACHE=$(docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}' 2>/dev/null || true)
-    _DOCKER_CACHE_SEC=$SECONDS
-}
-
-service_running() {
-    local name="$1"
-    if [ $(( SECONDS - _DOCKER_CACHE_SEC )) -ge 5 ]; then
-        _refresh_docker_cache
-    fi
-    printf '%s\n' "$_DOCKER_CACHE" | awk -F '\t' -v n="$name" '$2 == n && $4 == "running" { found=1; exit } END { exit !found }'
 }
 
 http_probe_url() {

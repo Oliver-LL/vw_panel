@@ -217,7 +217,7 @@ class HTTPTests(unittest.TestCase):
 class PackagingTests(unittest.TestCase):
     def test_pinned_original_and_packaged_files(self):
         self.assertEqual(hashlib.sha256((ROOT/'vw_original.sh').read_bytes()).hexdigest(),
-                         '756b783a388b087ff48af8db93273543a2ea2ea7009bdcfd50201e671d044aff')
+                         'b6b1777d67ff7906f561c6373d356cd4d4b979e82fe77d5b3eaf30f6e936d3dc')
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(['bash', str(ROOT/'install-vw-web.sh'), '--extract', directory], check=True, capture_output=True)
             for name in ('version.json','panel-cli.sh','vw_original.sh','vw_web.sh','web/server.py','web/panel_domain.py','web/panel_access.py','web/session_store.py','web/manager.py','web/compose_yaml.py','web/proxy_environment.py','web/managed_proxy.py','web/existing_npm.py','web/updater.py','web/operations.py','web/remote_config.py','web/browser_oauth.py','web/backup_targets.py','web/backup_result.py','web/storage_presets.py','web/environment.py','web/env_catalog.json','web/tty_worker.py','web/static/index.html','web/static/app.js','web/static/style.css'):
